@@ -1,0 +1,11 @@
+# For shared hosting (Hostinger, cPanel…) when this folder is the web root
+# (public_html). Sends every request into public/, so .env, vendor/, storage/
+# and the source code are never reachable from the web.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
+
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
