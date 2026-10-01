@@ -199,6 +199,24 @@ function incomingFor(kind, id){
   return total;
 }
 function availableOf(kind, item){ return num(item.stockOnHand) - reservedFor(kind, item.id); }
+/* Items this deal needs beyond what is on the shelf: delivery is refused until they arrive. */
+function dealShortages(t){
+  var need={}, out=[];
+  (t.lineItems||[]).forEach(function(li){
+    var parts = li.kind==="combo" ? [["base",li.baseId],["cover",li.coverId]] : [["product",li.productId]];
+    parts.forEach(function(p){ if(p[1]){ var k=p[0]+":"+p[1]; need[k]=(need[k]||0)+num(li.qty); } });
+  });
+  Object.keys(need).forEach(function(k){
+    var kind=k.split(":")[0], id=k.split(":")[1];
+    var it=byId(kind==="product"?state.products:(kind==="base"?state.bases:state.covers), id);
+    if(it && num(it.stockOnHand)<need[k]) out.push(it.name+" (need "+need[k]+", have "+num(it.stockOnHand)+")");
+  });
+  return out;
+}
+function availCell(kind, item){
+  var a=availableOf(kind,item);
+  return a<0 ? '<span style="color:var(--bad)">'+a+'</span>' : String(a);
+}
 function isLow(kind, item){ return availableOf(kind,item) <= num(item.reorderThreshold); }
 function stockValue(){
   return sum(state.products,function(p){ return num(p.stockOnHand)*itemCost(p); })
@@ -792,6 +810,7 @@ function openTx(id){
   var t=byId(state.transactions,id); if(!t) return;
   var pays=normalizedPayments(t);
   var live=isLive(t), due=refundDue(t), owed=live ? Math.max(0, txBalance(t)) : 0;
+  var short=(t.status==="Agreement" || t.status==="Invoiced") ? dealShortages(t) : [];
   var next={Quotation:["Agreement","Cancelled"], Agreement:["Invoiced","Cancelled"], Invoiced:["Delivered","Cancelled"], Delivered:[], Cancelled:[]}[t.status]||[];
   var lines=(t.lineItems||[]).map(function(li){
     var unitCost = li.costSnapshot!=null ? num(li.costSnapshot) : lineCost(li);
@@ -835,18 +854,24 @@ function openTx(id){
     '</div>' : '')+
     '<div style="display:flex; gap:8px; flex-wrap:wrap; padding-top:4px">'+
       (t.status==="Quotation" ? '<button class="btn sm" type="button" id="tx-edit">Edit quotation</button>' : '')+
-      next.map(function(a){ return '<button class="btn sm '+(a==="Cancelled"?"danger":"primary")+'" data-adv="'+a+'" type="button">'+(a==="Cancelled"?"Cancel deal":"Move to "+a)+'</button>'; }).join("")+
+      next.map(function(a){
+        var blocked = a==="Delivered" && short.length;
+        return '<button class="btn sm '+(a==="Cancelled"?"danger":"primary")+'" data-adv="'+a+'" type="button"'+(blocked?' data-blocked="1" title="Not enough stock to deliver"':'')+'>'+(a==="Cancelled"?"Cancel deal":"Move to "+a)+'</button>'; }).join("")+
       '<button class="btn sm" type="button" data-doc="Quotation">Quotation</button>'+
       (t.agreementDate||isBilled(t) ? '<button class="btn sm" type="button" data-doc="Agreement">Agreement</button>' : '')+
       (isBilled(t) ? '<button class="btn sm" type="button" data-doc="Invoice">Invoice</button>' : '')+
       (t.status==="Delivered" ? '<button class="btn sm" type="button" data-doc="Delivery Note">Delivery note</button>' : '')+
       (txPaid(t)>0 ? '<button class="btn sm" type="button" data-doc="Receipt">Receipt</button>' : '')+
     '</div>'+
+    (short.length ? '<p class="tiny" style="color:var(--bad)">Not enough stock to deliver yet: '+esc(short.join(", "))+'. You can still invoice; delivery opens once the stock arrives.</p>' : '')+
     (t.notes ? '<p class="tiny muted">'+esc(t.notes)+'</p>' : '');
 
   openDrawer(t.refNo + " · " + (t.clientName||""), html);
   $("drawer-body").querySelectorAll("[data-adv]").forEach(function(b){
-    b.addEventListener("click", function(){ advance(t, b.dataset.adv); });
+    b.addEventListener("click", function(){
+      if(b.dataset.blocked){ toast("Not enough stock to deliver: "+short.join(", "), true); return; }
+      advance(t, b.dataset.adv);
+    });
   });
   $("drawer-body").querySelectorAll("[data-doc]").forEach(function(b){
     b.addEventListener("click", function(){ openDoc(t, b.dataset.doc); });
@@ -958,6 +983,10 @@ function renderComposer(){
     var off=num(ln.unitPrice)-suggested;
     var marginTxt = cost>0 ? pct((num(ln.unitPrice)-cost)/(num(ln.unitPrice)||1),0) : "—";
     var itemVal = ln.kind==="combo" ? (ln.baseId?"b:"+ln.baseId:"") : (ln.productId?"p:"+ln.productId:"");
+    var avail = null;
+    if(ln.kind==="combo"){ var bb=baseById(ln.baseId), cc=coverById(ln.coverId);
+      if(bb) avail=availableOf("base",bb); if(cc) avail=Math.min(avail==null?Infinity:avail, availableOf("cover",cc)); }
+    else { var pp=productById(ln.productId); if(pp) avail=availableOf("product",pp); }
     var covers = ln.kind==="combo" && ln.baseId ? state.covers.filter(function(c){ var b=baseById(ln.baseId); return b && c.line===b.line; }) : [];
     return '<div class="li" data-i="'+i+'">'+
       '<div><div class="lbl">Item</div>'+
@@ -973,7 +1002,8 @@ function renderComposer(){
         (ln.kind==="combo" ? '<select data-f="cover"><option value="">Choose colour and finish…</option>'+covers.map(function(c){
           return '<option value="'+c.id+'"'+(c.id===ln.coverId?" selected":"")+'>'+esc(c.name)+'</option>'; }).join("")+'</select>' : '')+
       '</div>'+
-      '<div><div class="lbl">Qty</div><input data-f="qty" type="number" min="1" step="1" value="'+num(ln.qty)+'"></div>'+
+      '<div><div class="lbl">Qty</div><input data-f="qty" type="number" min="1" step="1" value="'+num(ln.qty)+'">'+
+        (avail!=null && num(ln.qty)>avail ? '<div class="tiny" style="color:var(--warn); margin-top:4px">'+(avail>0 ? 'only '+avail+' available' : 'none available')+'</div>' : '')+'</div>'+
       '<div><div class="lbl">Book price</div><div class="fixed">'+money(suggested)+'</div></div>'+
       '<div><div class="lbl">You charge</div><input data-f="price" type="number" step="0.01" value="'+num(ln.unitPrice).toFixed(2)+'"></div>'+
       '<div><div class="lbl">Line · margin</div><div class="fixed">'+money(lineTotal)+
@@ -1115,6 +1145,7 @@ $("doc-print").addEventListener("click", function(){ window.print(); });
    ============================================================ */
 function stockPill(kind, item){
   var avail=availableOf(kind,item), inc=incomingFor(kind,item.id);
+  if(avail<0) return '<span class="pill bad">Short '+(-avail)+(inc>0 ? ' · '+inc+' coming' : '')+'</span>';
   if(avail<=0) return '<span class="pill bad">Out</span>';
   if(isLow(kind,item)) return inc>0 ? '<span class="pill info">Restocking</span>' : '<span class="pill warn">Reorder</span>';
   return '<span class="pill good">Healthy</span>';
@@ -1135,7 +1166,7 @@ function renderInventory(){
       '<td class="num">'+(itemCost(p)>0?money(itemCost(p)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(p.stockOnHand)+'</td><td class="num">'+reservedFor("product",p.id)+'</td>'+
       '<td class="num">'+(incomingFor("product",p.id)||'<span class="faint">—</span>')+'</td>'+
-      '<td class="num strong">'+availableOf("product",p)+'</td><td>'+stockPill("product",p)+'</td></tr>';
+      '<td class="num strong">'+availCell("product",p)+'</td><td>'+stockPill("product",p)+'</td></tr>';
   }).join("") : emptyRow(8,"No products yet.");
 
   $("inv-bases").innerHTML = state.bases.length ? state.bases.map(function(b){
@@ -1144,7 +1175,7 @@ function renderInventory(){
       '<td class="num">'+(itemCost(b)>0?money(itemCost(b)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(b.stockOnHand)+'</td><td class="num">'+reservedFor("base",b.id)+'</td>'+
       '<td class="num">'+(incomingFor("base",b.id)||'<span class="faint">—</span>')+'</td>'+
-      '<td class="num strong">'+availableOf("base",b)+'</td><td>'+stockPill("base",b)+'</td></tr>';
+      '<td class="num strong">'+availCell("base",b)+'</td><td>'+stockPill("base",b)+'</td></tr>';
   }).join("") : emptyRow(8,"No bases yet.");
 
   $("inv-covers").innerHTML = state.covers.length ? state.covers.map(function(c){
@@ -1154,7 +1185,7 @@ function renderInventory(){
       '<td class="num">'+money(c.priceAddOn)+'</td>'+
       '<td class="num">'+(itemCost(c)>0?money(itemCost(c)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(c.stockOnHand)+'</td><td class="num">'+reservedFor("cover",c.id)+'</td>'+
-      '<td class="num strong">'+availableOf("cover",c)+'</td><td>'+stockPill("cover",c)+'</td></tr>';
+      '<td class="num strong">'+availCell("cover",c)+'</td><td>'+stockPill("cover",c)+'</td></tr>';
   }).join("") : emptyRow(9,"No covers yet.");
 
   document.querySelectorAll("#inv-pane-stock [data-edit]").forEach(function(r){
