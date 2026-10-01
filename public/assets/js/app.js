@@ -168,6 +168,8 @@ function payState(tx){
   return "Partial";
 }
 function isLive(tx){ return tx.status!=="Cancelled"; }
+/* Money to hand back: all of it on a cancelled deal, the overpaid part on a live one. */
+function refundDue(tx){ return tx.status==="Cancelled" ? Math.max(0, txPaid(tx)) : Math.max(0, -txBalance(tx)); }
 function isBilled(tx){ return tx.status==="Invoiced" || tx.status==="Delivered"; }
 function txRecognisedDate(tx){ return tx.invoiceDate || tx.deliveredDate || tx.agreementDate || tx.quotationDate; }
 function txAge(tx){ return daysSince(txRecognisedDate(tx)); }
@@ -238,10 +240,11 @@ function operatingExpenses(list){ /* stock purchases reach the P&L as cost of go
 }
 function ledgerRows(){
   var rows=[];
+  /* Cancelled deals included: money received stays received until it is refunded. */
   state.transactions.forEach(function(t){
-    if(!isLive(t)) return;
     normalizedPayments(t).forEach(function(p){
-      rows.push({date:p.date, dir:"in", label:(p.type||"Payment")+" — "+(t.clientName||""), ref:t.refNo, method:p.method||"", amount:num(p.amount)});
+      var a=num(p.amount);
+      rows.push({date:p.date, dir:a<0?"out":"in", label:(p.type||"Payment")+" — "+(t.clientName||""), ref:t.refNo, method:p.method||"", amount:Math.abs(a)});
     });
   });
   state.expenses.forEach(function(e){
@@ -265,7 +268,6 @@ function payrollMonthKey(p){
 function collectedInMonth(key){
   var total=0;
   state.transactions.forEach(function(t){
-    if(!isLive(t)) return;
     normalizedPayments(t).forEach(function(p){ if(monthKey(p.date)===key) total+=num(p.amount); });
   });
   return total;
@@ -336,11 +338,19 @@ function startDb(){
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) reload(); });
 }
 /* Run a write, refresh the data, then continue. */
+var sending=false;
 function send(method, path, body, done, okMsg){
+  /* Ignore a second click while the first is still on its way. */
+  if(sending) return Promise.resolve();
+  sending=true; document.body.style.cursor="progress";
+  document.querySelectorAll("#drawer-body button, #form-overlay .sheet-foot button").forEach(function(b){ b.disabled=true; });
   return api(method, path, body).then(function(res){
     return reload().then(function(){ if(okMsg) toast(okMsg); if(done) done(res); });
   }).catch(function(e){
     if(e.message!=="Signed out") toast(e.message || "Could not save", true);
+  }).then(function(){
+    sending=false; document.body.style.cursor="";
+    document.querySelectorAll("#drawer-body button, #form-overlay .sheet-foot button").forEach(function(b){ b.disabled=false; });
   });
 }
 function save(collection, id, data, done){
@@ -576,6 +586,8 @@ function stagePill(s){
   return '<span class="pill '+(m[s]||"neutral")+'">'+esc(s||"—")+'</span>';
 }
 function payPill(tx){
+  if(refundDue(tx)>0.004) return '<span class="pill bad">Refund due</span>';
+  if(!isLive(tx)) return '<span class="pill neutral">Closed</span>';
   var s=payState(tx), m={Paid:"good", Partial:"warn", Unpaid:"bad"};
   return '<span class="pill '+m[s]+'">'+s+'</span>';
 }
@@ -617,6 +629,11 @@ function buildQueue(){
         detail:"Invoice "+invoiceRef(t.refNo)+" · "+age+" days old", value:money(txBalance(t)),
         go:function(){ setView("sales"); openTx(t.id); }});
     }
+  });
+  state.transactions.filter(function(t){ return refundDue(t)>0.004; }).forEach(function(t){
+    items.push({sev:"bad", area:"sales", title:"Refund "+money(refundDue(t))+" to "+t.clientName,
+      detail:t.refNo+(t.status==="Cancelled" ? " · cancelled after payment" : " · paid more than the total"), value:money(refundDue(t)),
+      go:function(){ setView("sales"); openTx(t.id); }});
   });
   state.transactions.filter(function(t){ return t.status==="Agreement" && txBalance(t)>0.004; }).forEach(function(t){
     var age = daysSince(t.agreementDate);
@@ -753,8 +770,8 @@ function renderSales(){
       '<td class="strong">'+esc(t.clientName||"—")+'<div class="tiny faint">'+esc(t.region||"")+' · '+esc(t.clientType||"")+'</div></td>'+
       '<td>'+stagePill(t.status)+'</td>'+
       '<td class="num">'+money(txTotal(t))+'</td>'+
-      '<td class="num">'+(bal>0.004 ? money(bal) : '<span class="faint">settled</span>')+'</td>'+
-      '<td>'+(bal>0.004 && age!=null ? '<span class="pill '+(overdue?"bad":"neutral")+'">'+age+'d</span>' : '<span class="faint tiny">—</span>')+'</td>'+
+      '<td class="num">'+balanceCell(t)+'</td>'+
+      '<td>'+(isLive(t) && bal>0.004 && age!=null ? '<span class="pill '+(overdue?"bad":"neutral")+'">'+age+'d</span>' : '<span class="faint tiny">—</span>')+'</td>'+
       '<td class="num">'+m+'</td>'+
     '</tr>';
   }).join("") : emptyRow(7,"No deals in this view.");
@@ -763,10 +780,18 @@ function renderSales(){
   });
 }
 
+function balanceCell(t){
+  var due=refundDue(t), bal=txBalance(t);
+  if(due>0.004) return '<span class="pill warn">refund '+money(due)+'</span>';
+  if(!isLive(t)) return '<span class="faint">—</span>';
+  return bal>0.004 ? money(bal) : '<span class="faint">settled</span>';
+}
+
 /* ---------- Transaction drawer ---------- */
 function openTx(id){
   var t=byId(state.transactions,id); if(!t) return;
   var pays=normalizedPayments(t);
+  var live=isLive(t), due=refundDue(t), owed=live ? Math.max(0, txBalance(t)) : 0;
   var next={Quotation:["Agreement","Cancelled"], Agreement:["Invoiced","Cancelled"], Invoiced:["Delivered","Cancelled"], Delivered:[], Cancelled:[]}[t.status]||[];
   var lines=(t.lineItems||[]).map(function(li){
     var unitCost = li.costSnapshot!=null ? num(li.costSnapshot) : lineCost(li);
@@ -793,19 +818,23 @@ function openTx(id){
       (num(t.vatPct)>0 ? '<div class="r"><span class="l">VAT '+num(t.vatPct)+'%</span><span class="mono">'+money(txVat(t))+'</span></div>' : '')+
       '<div class="r"><span class="l">Paid</span><span class="mono">'+money(txPaid(t))+'</span></div>'+
       (txHasCost(t) ? '<div class="r"><span class="l">Margin</span><span class="mono">'+money(txMargin(t))+' · '+pct(txMargin(t)/(txSubtotal(t)||1),0)+'</span></div>' : '')+
-      '<div class="r grand"><span class="l">Balance</span><span class="v">'+money(txBalance(t))+'</span></div>'+
+      (due>0.004 ? '<div class="r grand"><span class="l">Refund due to client</span><span class="v">'+money(due)+'</span></div>'
+        : (live ? '<div class="r grand"><span class="l">Balance</span><span class="v">'+money(Math.max(0,txBalance(t)))+'</span></div>' : ''))+
     '</div>'+
     '<div class="section"><p class="eyebrow">Payments</p><div class="panel"><div class="table-wrap"><table><tbody>'+
       (pays.length ? pays.map(function(p){
-        return '<tr><td>'+fmtDate(p.date)+'</td><td>'+esc(p.type||"Payment")+'</td><td>'+esc(p.method||"")+'</td><td class="num">'+money(p.amount)+'</td></tr>';
+        return '<tr><td>'+fmtDate(p.date)+'</td><td>'+esc(p.type||"Payment")+'</td><td>'+esc(p.method||"")+'</td><td class="num">'+money(p.amount)+'</td>'+
+          (isOwner() && p.id ? '<td style="width:1%"><button class="btn quiet sm" type="button" data-delpay="'+p.id+'" aria-label="Delete payment">×</button></td>' : '')+'</tr>';
       }).join("") : emptyRow(4,"Nothing received yet."))+
     '</tbody></table></div></div></div>'+
+    (due>0.004 || owed>0.004 ?
     '<div class="grid g3">'+
-      '<div class="field"><label for="tx-amt">Log a payment</label><input id="tx-amt" type="number" min="0" step="1" value="0" class="mono"></div>'+
+      '<div class="field"><label for="tx-amt">'+(due>0.004 ? "Refund to client" : "Log a payment")+'</label><input id="tx-amt" type="number" min="0" step="0.01" value="'+(due>0.004 ? due : owed).toFixed(2)+'" class="mono"></div>'+
       '<div class="field"><label for="tx-meth">Method</label><select id="tx-meth"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>'+
-      '<div class="field"><label>&nbsp;</label><button class="btn" type="button" id="tx-pay">Record</button></div>'+
-    '</div>'+
+      '<div class="field"><label>&nbsp;</label><button class="btn" type="button" id="tx-pay">'+(due>0.004 ? "Record refund" : "Record")+'</button></div>'+
+    '</div>' : '')+
     '<div style="display:flex; gap:8px; flex-wrap:wrap; padding-top:4px">'+
+      (t.status==="Quotation" ? '<button class="btn sm" type="button" id="tx-edit">Edit quotation</button>' : '')+
       next.map(function(a){ return '<button class="btn sm '+(a==="Cancelled"?"danger":"primary")+'" data-adv="'+a+'" type="button">'+(a==="Cancelled"?"Cancel deal":"Move to "+a)+'</button>'; }).join("")+
       '<button class="btn sm" type="button" data-doc="Quotation">Quotation</button>'+
       (t.agreementDate||isBilled(t) ? '<button class="btn sm" type="button" data-doc="Agreement">Agreement</button>' : '')+
@@ -822,15 +851,30 @@ function openTx(id){
   $("drawer-body").querySelectorAll("[data-doc]").forEach(function(b){
     b.addEventListener("click", function(){ openDoc(t, b.dataset.doc); });
   });
-  $("tx-pay").addEventListener("click", function(){
+  if($("tx-pay")) $("tx-pay").addEventListener("click", function(){
     var amt=valNum("tx-amt");
     if(amt<=0){ toast("Enter an amount first", true); return; }
+    if(due>0.004){
+      if(amt>due+0.004){ toast("Only "+money(due)+" is owed back to the client", true); return; }
+      send("POST", "transactions/"+t.id+"/refunds", {amount:amt, method:val("tx-meth"), date:todayISO()},
+        function(){ closeDrawer(); }, "Refund recorded");
+      return;
+    }
+    if(amt>owed+0.004){ toast("That is more than the "+money(owed)+" still owed", true); return; }
     send("POST", "transactions/"+t.id+"/payments", {amount:amt, method:val("tx-meth"), date:todayISO()},
       function(){ closeDrawer(); }, "Payment recorded");
   });
+  $("drawer-body").querySelectorAll("[data-delpay]").forEach(function(b){
+    b.addEventListener("click", function(){
+      if(!window.confirm("Delete this payment? Use this only for a payment recorded by mistake.")) return;
+      send("DELETE", "payments/"+b.dataset.delpay, null, function(){ openTx(t.id); }, "Payment deleted");
+    });
+  });
+  if($("tx-edit")) $("tx-edit").addEventListener("click", function(){ closeDrawer(); openComposer(t); });
 }
 function advance(t, next){
-  if(next==="Cancelled" && !window.confirm("Cancel "+t.refNo+"? The deal stays on record as cancelled.")) return;
+  if(next==="Cancelled" && !window.confirm("Cancel "+t.refNo+"? The deal stays on record as cancelled."+
+    (txPaid(t)>0.004 ? "\n\nThe client has paid "+money(txPaid(t))+". It stays in the cash ledger until you record the refund from this deal." : ""))) return;
   /* Moving to Delivered takes the goods out of stock on the server. */
   send("POST", "transactions/"+t.id+"/advance", {status:next},
     function(){ closeDrawer(); }, t.refNo+" is now "+next.toLowerCase());
@@ -839,12 +883,29 @@ function advance(t, next){
 /* ============================================================
    17. OFFER COMPOSER
    ============================================================ */
-function openComposer(){
-  state.offer={lines:[{kind:"product", productId:"", baseId:"", coverId:"", qty:1, unitPrice:0, touched:false}]};
-  $("of-date").value=todayISO();
-  $("of-paid").value=0; $("of-notes").value=""; $("of-due").value="";
+/* With a quotation, the composer edits it; without, it starts a new offer. */
+function openComposer(tx){
+  var editing = tx && tx.id ? tx : null;
+  state.offer={editId: editing ? editing.id : null, ref: editing ? editing.refNo : "",
+    lines: editing ? (editing.lineItems||[]).map(function(li){
+      return {kind:li.kind, productId:li.productId||"", baseId:li.baseId||"", coverId:li.coverId||"", qty:num(li.qty), unitPrice:num(li.unitPrice), touched:true};
+    }) : [{kind:"product", productId:"", baseId:"", coverId:"", qty:1, unitPrice:0, touched:false}]};
+  $("of-title").textContent = editing ? "Edit quotation "+editing.refNo : "New price offer";
+  $("of-save").textContent = editing ? "Save changes" : "Save quotation";
+  $("of-paid-wrap").hidden = $("of-method-wrap").hidden = !!editing;
+  $("of-date").value = editing ? txDocDate(editing) : todayISO();
+  $("of-paid").value=0;
+  $("of-notes").value = editing ? (editing.notes||"") : "";
+  $("of-due").value = editing ? (editing.dueDate||"") : "";
   $("composer").hidden=false;
   renderComposer();
+  if(editing){
+    $("of-client").value=editing.clientId||"";
+    $("of-region").value=editing.region||"West Bank";
+    var ty=document.querySelector('input[name="oftype"][value="'+(editing.typeCode==="P"?"Partner":"Direct")+'"]'); if(ty) ty.checked=true;
+    var sv=document.querySelector('input[name="ofservice"][value="'+editing.serviceType+'"]'); if(sv) sv.checked=true;
+    renderComposer();
+  }
 }
 function closeComposer(){ $("composer").hidden=true; }
 $("of-cancel").addEventListener("click", closeComposer);
@@ -882,7 +943,10 @@ function renderComposer(){
   if(keep) sel.value=keep;
 
   var ym=yymmOf(ctx.date);
-  $("of-ref").textContent = buildRef(ym, regionCode(ctx.region), typeCode(ctx.type), nextSeq(ym));
+  /* An edited quotation keeps its month and counter; only the region/type letters can change. */
+  $("of-ref").textContent = state.offer.editId
+    ? state.offer.ref.slice(0,4) + regionCode(ctx.region) + typeCode(ctx.type) + state.offer.ref.slice(6)
+    : buildRef(ym, regionCode(ctx.region), typeCode(ctx.type), nextSeq(ym));
 
   var groups={};
   state.bases.forEach(function(b){ var k=b.line||"Other"; (groups[k]=groups[k]||[]).push(b); });
@@ -944,21 +1008,24 @@ function renderComposer(){
   var subtotal=sum(done,function(l){ return num(l.qty)*num(l.unitPrice); });
   var cogs=sum(done,function(l){ return num(l.qty)*lineCost(l); });
   var vat=subtotal*(num(state.settings.vatPct)/100);
-  var paid=valNum("of-paid");
+  var paid=state.offer.editId ? 0 : valNum("of-paid");
   $("of-totals").innerHTML =
     '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(subtotal)+'</span></div>'+
     (ctx.discount>0 ? '<div class="r"><span class="l">Client discount applied</span><span class="mono">'+pct(ctx.discount)+'</span></div>' : '')+
     (cogs>0 ? '<div class="r"><span class="l">Margin on this offer</span><span class="mono">'+money(subtotal-cogs)+' · '+pct((subtotal-cogs)/(subtotal||1),0)+'</span></div>' : '')+
     (vat>0 ? '<div class="r"><span class="l">VAT '+num(state.settings.vatPct)+'%</span><span class="mono">'+money(vat)+'</span></div>' : '')+
     '<div class="r grand"><span class="l">Total</span><span class="v">'+money(subtotal+vat)+'</span></div>'+
-    '<div class="r"><span class="l">Balance after payment now</span><span class="mono">'+money(subtotal+vat-paid)+'</span></div>';
+    (state.offer.editId ? '' : '<div class="r"><span class="l">Balance after payment now</span><span class="mono">'+money(subtotal+vat-paid)+'</span></div>');
 }
 $("of-save").addEventListener("click", function(){
   var ctx=offerCtx();
   if(!ctx.client){ toast("Choose a client first", true); return; }
   var done=state.offer.lines.filter(function(l){ return lineReady(l) && num(l.qty)>0; });
   if(!done.length){ toast("Add at least one item", true); return; }
-  var paid=valNum("of-paid");
+  var editId=state.offer.editId;
+  var paid=editId ? 0 : valNum("of-paid");
+  var total=sum(done,function(l){ return num(l.qty)*num(l.unitPrice); })*(1+num(state.settings.vatPct)/100);
+  if(paid>total+0.004){ toast("Paid now is more than the offer total of "+money(total), true); return; }
   var data={
     clientId:ctx.client.id, region:ctx.region, dealType:ctx.type, serviceType:ctx.service,
     date:ctx.date, dueDate:val("of-due") || null, notes:val("of-notes"),
@@ -971,8 +1038,8 @@ $("of-save").addEventListener("click", function(){
   };
   var btn=$("of-save"); btn.disabled=true;
   /* The server hands out the reference number, so two people saving at once never collide. */
-  api("POST", "transactions", data).then(function(res){
-    return reload().then(function(){ toast("Saved as "+res.refNo); closeComposer(); setView("sales"); });
+  api(editId ? "PUT" : "POST", "transactions"+(editId ? "/"+editId : ""), data).then(function(res){
+    return reload().then(function(){ toast((editId ? "Updated " : "Saved as ")+res.refNo); closeComposer(); setView("sales"); });
   }).catch(function(e){ toast(e.message || "Could not save", true); })
     .then(function(){ btn.disabled=false; });
 });

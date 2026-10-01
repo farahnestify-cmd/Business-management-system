@@ -25,7 +25,9 @@ Route::middleware('auth')->group(function () {
 
         Route::post('transactions', [SalesController::class, 'store']);
         Route::post('transactions/{transaction}/payments', [SalesController::class, 'pay']);
+        Route::put('transactions/{transaction}', [SalesController::class, 'update']);
         Route::post('transactions/{transaction}/advance', [SalesController::class, 'advance']);
+        Route::post('transactions/{transaction}/refunds', [SalesController::class, 'refund']);
 
         Route::post('purchase_orders', [PurchaseOrderController::class, 'store']);
         Route::put('purchase_orders/{purchaseOrder}', [PurchaseOrderController::class, 'update']);
@@ -40,6 +42,7 @@ Route::middleware('auth')->group(function () {
 
         Route::middleware('owner')->group(function () {
             Route::put('settings', [SettingsController::class, 'update']);
+            Route::delete('payments/{payment}', [SalesController::class, 'destroyPayment']);
             Route::post('payroll_payments', [PayrollController::class, 'store']);
             Route::delete('payroll_payments/{payrollPayment}', [PayrollController::class, 'destroy']);
             Route::post('users', [AccountController::class, 'store']);

@@ -357,7 +357,7 @@
 <div class="overlay" id="composer" hidden>
   <div class="sheet">
     <div class="sheet-head">
-      <h3>New price offer</h3>
+      <h3 id="of-title">New price offer</h3>
       <div style="display:flex; gap:8px">
         <button class="btn quiet sm" type="button" id="of-cancel">Discard</button>
         <button class="btn primary sm" type="button" id="of-save">Save quotation</button>
@@ -388,8 +388,8 @@
       </div>
 
       <div class="grid g3">
-        <div class="field"><label for="of-paid">Paid now</label><input id="of-paid" type="number" min="0" step="1" value="0" class="mono"></div>
-        <div class="field"><label for="of-method">Method</label><select id="of-method"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>
+        <div class="field" id="of-paid-wrap"><label for="of-paid">Paid now</label><input id="of-paid" type="number" min="0" step="1" value="0" class="mono"></div>
+        <div class="field" id="of-method-wrap"><label for="of-method">Method</label><select id="of-method"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>
         <div class="field"><label for="of-due">Balance due by</label><input id="of-due" type="date" class="mono"></div>
       </div>
       <div class="field"><label for="of-notes">Notes on the offer</label><input id="of-notes" type="text" placeholder="Scope, floors covered, delivery expectations…"></div>
