@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Base;
 use App\Models\Client;
+use App\Models\Cover;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\User;
@@ -59,17 +61,48 @@ class SalesSafeguardsTest extends TestCase
         ])->assertStatus(422);
     }
 
-    public function test_delivery_is_refused_when_stock_is_short(): void
+    public function test_delivery_hands_over_what_is_in_stock_and_keeps_the_rest_waiting(): void
     {
         $id = $this->quote(5);
         $this->moveTo($id, 'Agreement', 'Invoiced');
-        $this->postJson("/api/transactions/$id/advance", ['status' => 'Delivered'])
-            ->assertStatus(422)->assertJsonPath('message', fn ($m) => str_contains($m, 'Lock (need 5, have 3)'));
-        $this->assertSame(3, $this->product->fresh()->stock_on_hand);
 
-        $this->product->update(['stock_on_hand' => 5]);
-        $this->moveTo($id, 'Delivered');
+        $res = $this->postJson("/api/transactions/$id/deliver")->assertOk();
+        $this->assertFalse($res->json('complete'));
+        $this->assertSame([['name' => 'Lock', 'qty' => 3]], $res->json('delivered'));
+        $this->assertSame([['name' => 'Lock', 'qty' => 2]], $res->json('waiting'));
         $this->assertSame(0, $this->product->fresh()->stock_on_hand);
+
+        $tx = collect($this->getJson('/api/bootstrap')->json('transactions'))->firstWhere('id', $id);
+        $this->assertSame('Invoiced', $tx['status']);
+        $this->assertSame(3, $tx['lineItems'][0]['deliveredQty']);
+
+        // Nothing on the shelf: refused, nothing changes.
+        $this->postJson("/api/transactions/$id/deliver")->assertStatus(422);
+        // Part delivered goods cannot be cancelled away.
+        $this->postJson("/api/transactions/$id/advance", ['status' => 'Cancelled'])->assertStatus(409);
+
+        $this->product->update(['stock_on_hand' => 4]);
+        $this->assertTrue($this->postJson("/api/transactions/$id/deliver")->assertOk()->json('complete'));
+        $this->assertSame(2, $this->product->fresh()->stock_on_hand);
+        $this->assertDatabaseHas('transactions', ['id' => $id, 'status' => 'Delivered']);
+        $this->postJson("/api/transactions/$id/deliver")->assertStatus(409);
+    }
+
+    public function test_base_and_cover_pair_goes_out_as_many_times_as_the_scarcer_half(): void
+    {
+        $base = Base::create(['name' => 'Switch', 'line' => 'Q', 'stock_on_hand' => 10]);
+        $cover = Cover::create(['name' => 'Black', 'line' => 'Q', 'stock_on_hand' => 4]);
+        $id = $this->postJson('/api/transactions', [
+            'clientId' => $this->client->id, 'region' => 'West Bank', 'dealType' => 'Direct',
+            'serviceType' => 'Without Programming', 'date' => now()->toDateString(),
+            'lines' => [['kind' => 'combo', 'baseId' => $base->id, 'coverId' => $cover->id, 'qty' => 6, 'unitPrice' => 40]],
+        ])->assertCreated()->json('id');
+        $this->moveTo($id, 'Agreement', 'Invoiced');
+
+        $this->postJson("/api/transactions/$id/advance", ['status' => 'Delivered'])->assertOk()
+            ->assertJsonPath('waiting.0.qty', 2);
+        $this->assertSame(6, $base->fresh()->stock_on_hand);
+        $this->assertSame(0, $cover->fresh()->stock_on_hand);
     }
 
     public function test_cancelled_deal_with_payment_can_be_refunded_in_full_only(): void

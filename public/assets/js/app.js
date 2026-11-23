@@ -183,9 +183,10 @@ function reservedFor(kind, id){
   state.transactions.forEach(function(t){
     if(t.status!=="Agreement" && t.status!=="Invoiced") return;
     (t.lineItems||[]).forEach(function(li){
-      if(kind==="product" && li.kind!=="combo" && li.productId===id) total+=num(li.qty);
-      if(kind==="base" && li.kind==="combo" && li.baseId===id) total+=num(li.qty);
-      if(kind==="cover" && li.kind==="combo" && li.coverId===id) total+=num(li.qty);
+      var left=lineLeft(li);
+      if(kind==="product" && li.kind!=="combo" && li.productId===id) total+=left;
+      if(kind==="base" && li.kind==="combo" && li.baseId===id) total+=left;
+      if(kind==="cover" && li.kind==="combo" && li.coverId===id) total+=left;
     });
   });
   return total;
@@ -199,20 +200,29 @@ function incomingFor(kind, id){
   return total;
 }
 function availableOf(kind, item){ return num(item.stockOnHand) - reservedFor(kind, item.id); }
-/* Items this deal needs beyond what is on the shelf: delivery is refused until they arrive. */
-function dealShortages(t){
-  var need={}, out=[];
+function lineLeft(li){ return Math.max(0, num(li.qty)-num(li.deliveredQty)); }
+function deliveredSome(t){ return (t.lineItems||[]).some(function(li){ return num(li.deliveredQty)>0; }); }
+/* What a delivery would hand over now and what would still wait for stock.
+   Same rule as the server: each line takes what the shelf has, a base + cover
+   pair as many as the scarcer half allows. */
+function deliveryPlan(t){
+  var shelf={}, now=[], later=[];
+  function onShelf(kind, id){
+    var k=kind+":"+id;
+    if(!(k in shelf)){ var it=byId(kind==="product"?state.products:(kind==="base"?state.bases:state.covers), id); shelf[k]=it ? Math.max(0,num(it.stockOnHand)) : 0; }
+    return k;
+  }
   (t.lineItems||[]).forEach(function(li){
-    var parts = li.kind==="combo" ? [["base",li.baseId],["cover",li.coverId]] : [["product",li.productId]];
-    parts.forEach(function(p){ if(p[1]){ var k=p[0]+":"+p[1]; need[k]=(need[k]||0)+num(li.qty); } });
+    var left=lineLeft(li); if(!left) return;
+    var keys = li.kind==="combo" ? [onShelf("base",li.baseId), onShelf("cover",li.coverId)] : [onShelf("product",li.productId)];
+    var take=Math.min.apply(null, [left].concat(keys.map(function(k){ return shelf[k]; })));
+    keys.forEach(function(k){ shelf[k]-=take; });
+    if(take>0) now.push({name:li.name, qty:take});
+    if(left-take>0) later.push({name:li.name, qty:left-take});
   });
-  Object.keys(need).forEach(function(k){
-    var kind=k.split(":")[0], id=k.split(":")[1];
-    var it=byId(kind==="product"?state.products:(kind==="base"?state.bases:state.covers), id);
-    if(it && num(it.stockOnHand)<need[k]) out.push(it.name+" (need "+need[k]+", have "+num(it.stockOnHand)+")");
-  });
-  return out;
+  return {now:now, later:later};
 }
+function listQty(rows){ return rows.map(function(r){ return r.qty+" × "+r.name; }).join(", "); }
 function availCell(kind, item){
   var a=availableOf(kind,item);
   return a<0 ? '<span style="color:var(--bad)">'+a+'</span>' : String(a);
@@ -439,6 +449,7 @@ wireSegmented("inv-tabs", function(v){
   $("inv-pane-stock").hidden = v!=="stock";
   $("inv-pane-orders").hidden = v!=="orders";
   $("inv-pane-suppliers").hidden = v!=="suppliers";
+  $("inv-pane-deliver").hidden = v!=="deliver";
   syncInventoryAction(); renderInventory();
 });
 wireSegmented("money-tabs", function(v){
@@ -599,6 +610,9 @@ function applyBrand(){
 function figure(name, value, small){
   return '<div class="figure"><div class="v'+(small?" small":"")+'">'+value+'</div><div class="n">'+esc(name)+'</div></div>';
 }
+function dealStage(t){
+  return t.status==="Invoiced" && deliveredSome(t) ? '<span class="pill info">Part delivered</span>' : stagePill(t.status);
+}
 function stagePill(s){
   var m={Quotation:"neutral", Agreement:"accent", Invoiced:"info", Delivered:"good", Cancelled:"bad"};
   return '<span class="pill '+(m[s]||"neutral")+'">'+esc(s||"—")+'</span>';
@@ -678,6 +692,12 @@ function buildQueue(){
         value:"", go:function(){ setView("inventory"); editStock(r.kind, r.item); }});
     }
   });
+  state.transactions.filter(function(t){ return t.status==="Invoiced" && deliveredSome(t); }).forEach(function(t){
+    var plan=deliveryPlan(t);
+    if(!plan.now.length) return;
+    items.push({sev:"warn", area:"inventory", title:"Stock is in — deliver the rest to "+t.clientName,
+      detail:t.refNo+" · "+listQty(plan.now), value:"", go:function(){ setView("sales"); openTx(t.id); }});
+  });
   state.orders.filter(function(o){ return o.status==="Ordered"; }).forEach(function(o){
     var late = o.expectedDate && daysSince(o.expectedDate) > 0;
     items.push({sev: late ? "warn" : "info", area:"inventory",
@@ -738,7 +758,7 @@ function renderToday(){
 
   var acts=[];
   state.transactions.slice(0,10).forEach(function(t){
-    acts.push({date:txRecognisedDate(t)||txDocDate(t), html:'<td>'+stagePill(t.status)+'</td><td>'+esc(t.clientName||"")+
+    acts.push({date:txRecognisedDate(t)||txDocDate(t), html:'<td>'+dealStage(t)+'</td><td>'+esc(t.clientName||"")+
       '<div class="tiny faint mono">'+esc(t.refNo)+'</div></td><td class="num">'+money(txTotal(t))+'</td>', go:function(){ setView("sales"); openTx(t.id); }});
   });
   state.expenses.slice(0,6).forEach(function(e){
@@ -786,7 +806,7 @@ function renderSales(){
     return '<tr class="clickable" data-tx="'+t.id+'">'+
       '<td class="mono">'+esc(t.refNo)+'<div class="tiny faint">'+fmtDate(txDocDate(t))+'</div></td>'+
       '<td class="strong">'+esc(t.clientName||"—")+'<div class="tiny faint">'+esc(t.region||"")+' · '+esc(t.clientType||"")+'</div></td>'+
-      '<td>'+stagePill(t.status)+'</td>'+
+      '<td>'+dealStage(t)+'</td>'+
       '<td class="num">'+money(txTotal(t))+'</td>'+
       '<td class="num">'+balanceCell(t)+'</td>'+
       '<td>'+(isLive(t) && bal>0.004 && age!=null ? '<span class="pill '+(overdue?"bad":"neutral")+'">'+age+'d</span>' : '<span class="faint tiny">—</span>')+'</td>'+
@@ -810,19 +830,23 @@ function openTx(id){
   var t=byId(state.transactions,id); if(!t) return;
   var pays=normalizedPayments(t);
   var live=isLive(t), due=refundDue(t), owed=live ? Math.max(0, txBalance(t)) : 0;
-  var short=(t.status==="Agreement" || t.status==="Invoiced") ? dealShortages(t) : [];
+  var plan=t.status==="Invoiced" ? deliveryPlan(t) : {now:[], later:[]};
+  var showDelivered=t.status==="Invoiced" || t.status==="Delivered";
   var next={Quotation:["Agreement","Cancelled"], Agreement:["Invoiced","Cancelled"], Invoiced:["Delivered","Cancelled"], Delivered:[], Cancelled:[]}[t.status]||[];
   var lines=(t.lineItems||[]).map(function(li){
     var unitCost = li.costSnapshot!=null ? num(li.costSnapshot) : lineCost(li);
     var lineMargin = num(li.qty)*(num(li.unitPrice)-unitCost);
-    return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td><td class="num">'+money(li.unitPrice)+'</td>'+
+    var left=lineLeft(li);
+    return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td>'+
+      (showDelivered ? '<td class="num">'+(left>0 ? '<span style="color:var(--warn)">'+num(li.deliveredQty)+'</span>' : num(li.deliveredQty))+'</td>' : '')+
+      '<td class="num">'+money(li.unitPrice)+'</td>'+
       '<td class="num">'+(unitCost>0 ? money(lineMargin) : '<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+money(num(li.qty)*num(li.unitPrice))+'</td></tr>';
   }).join("");
 
   var html =
     '<div class="grid g3">'+
-      '<div class="kv"><span class="k">Stage</span><span class="v">'+stagePill(t.status)+'</span></div>'+
+      '<div class="kv"><span class="k">Stage</span><span class="v">'+dealStage(t)+'</span></div>'+
       '<div class="kv"><span class="k">Payment</span><span class="v">'+payPill(t)+'</span></div>'+
       '<div class="kv"><span class="k">Programming</span><span class="v">'+esc(t.serviceType==="With Programming"?"Included":"Supply only")+'</span></div>'+
       '<div class="kv"><span class="k">Client</span><span class="v">'+esc(t.clientName||"")+'</span></div>'+
@@ -830,7 +854,7 @@ function openTx(id){
       '<div class="kv"><span class="k">Dated</span><span class="v">'+fmtDate(txDocDate(t))+'</span></div>'+
     '</div>'+
     '<div class="panel"><div class="table-wrap"><table>'+
-      '<thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Price</th><th class="num">Margin</th><th class="num">Total</th></tr></thead>'+
+      '<thead><tr><th>Item</th><th class="num">Qty</th>'+(showDelivered?'<th class="num">Delivered</th>':'')+'<th class="num">Price</th><th class="num">Margin</th><th class="num">Total</th></tr></thead>'+
       '<tbody>'+(lines||emptyRow(5,"No items"))+'</tbody></table></div></div>'+
     '<div class="totals">'+
       '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(txSubtotal(t))+'</span></div>'+
@@ -854,22 +878,25 @@ function openTx(id){
     '</div>' : '')+
     '<div style="display:flex; gap:8px; flex-wrap:wrap; padding-top:4px">'+
       (t.status==="Quotation" ? '<button class="btn sm" type="button" id="tx-edit">Edit quotation</button>' : '')+
-      next.map(function(a){
-        var blocked = a==="Delivered" && short.length;
-        return '<button class="btn sm '+(a==="Cancelled"?"danger":"primary")+'" data-adv="'+a+'" type="button"'+(blocked?' data-blocked="1" title="Not enough stock to deliver"':'')+'>'+(a==="Cancelled"?"Cancel deal":"Move to "+a)+'</button>'; }).join("")+
+      next.filter(function(a){ return !(a==="Cancelled" && deliveredSome(t)); }).map(function(a){
+        var label = a==="Cancelled" ? "Cancel deal" : (a!=="Delivered" ? "Move to "+a : (plan.later.length ? "Deliver what is in stock" : "Deliver"));
+        var blocked = a==="Delivered" && !plan.now.length;
+        return '<button class="btn sm '+(a==="Cancelled"?"danger":"primary")+'" data-adv="'+a+'" type="button"'+(blocked?' data-blocked="1"':'')+'>'+label+'</button>'; }).join("")+
       '<button class="btn sm" type="button" data-doc="Quotation">Quotation</button>'+
       (t.agreementDate||isBilled(t) ? '<button class="btn sm" type="button" data-doc="Agreement">Agreement</button>' : '')+
       (isBilled(t) ? '<button class="btn sm" type="button" data-doc="Invoice">Invoice</button>' : '')+
-      (t.status==="Delivered" ? '<button class="btn sm" type="button" data-doc="Delivery Note">Delivery note</button>' : '')+
+      (deliveredSome(t) ? '<button class="btn sm" type="button" data-doc="Delivery Note">Delivery note</button>' : '')+
       (txPaid(t)>0 ? '<button class="btn sm" type="button" data-doc="Receipt">Receipt</button>' : '')+
     '</div>'+
-    (short.length ? '<p class="tiny" style="color:var(--bad)">Not enough stock to deliver yet: '+esc(short.join(", "))+'. You can still invoice; delivery opens once the stock arrives.</p>' : '')+
+    (plan.later.length ?
+      '<p class="tiny" style="color:var(--warn)">'+(plan.now.length ? 'Delivering now: '+esc(listQty(plan.now))+'.<br>' : 'Nothing in stock to deliver yet.<br>')+
+      'Still to come: '+esc(listQty(plan.later))+'. It stays on the To deliver list until the stock arrives.</p>' : '')+
     (t.notes ? '<p class="tiny muted">'+esc(t.notes)+'</p>' : '');
 
   openDrawer(t.refNo + " · " + (t.clientName||""), html);
   $("drawer-body").querySelectorAll("[data-adv]").forEach(function(b){
     b.addEventListener("click", function(){
-      if(b.dataset.blocked){ toast("Not enough stock to deliver: "+short.join(", "), true); return; }
+      if(b.dataset.blocked){ toast("Nothing to deliver yet: none of the remaining items are in stock", true); return; }
       advance(t, b.dataset.adv);
     });
   });
@@ -900,7 +927,14 @@ function openTx(id){
 function advance(t, next){
   if(next==="Cancelled" && !window.confirm("Cancel "+t.refNo+"? The deal stays on record as cancelled."+
     (txPaid(t)>0.004 ? "\n\nThe client has paid "+money(txPaid(t))+". It stays in the cash ledger until you record the refund from this deal." : ""))) return;
-  /* Moving to Delivered takes the goods out of stock on the server. */
+  if(next==="Delivered"){
+    /* Hands over what is on the shelf; anything short waits on the To deliver list. */
+    send("POST", "transactions/"+t.id+"/deliver", {}, function(res){
+      closeDrawer();
+      toast(res && res.complete ? t.refNo+" is fully delivered" : t.refNo+" part delivered — still to come: "+listQty((res&&res.waiting)||[]));
+    });
+    return;
+  }
   send("POST", "transactions/"+t.id+"/advance", {status:next},
     function(){ closeDrawer(); }, t.refNo+" is now "+next.toLowerCase());
 }
@@ -1082,13 +1116,15 @@ function openDoc(t, kind){
   var refMap={"Quotation":t.refNo, "Agreement":agreementRef(t.refNo), "Invoice":invoiceRef(t.refNo),
               "Delivery Note":invoiceRef(t.refNo), "Receipt":invoiceRef(t.refNo)};
   var dateMap={"Quotation":txDocDate(t), "Agreement":t.agreementDate, "Invoice":t.invoiceDate,
-               "Delivery Note":t.deliveredDate, "Receipt":todayISO()};
+               "Delivery Note":t.deliveredDate||todayISO(), "Receipt":todayISO()};
   var client=clientById(t.clientId)||{};
   var showMoney = kind!=="Delivery Note";
   var terms = kind==="Quotation" ? s.termsQuotation : (kind==="Agreement" ? s.termsAgreement : s.termsInvoice);
   terms = String(terms||"").replace("{validity}", num(s.validityDays));
 
+  var isNote = kind==="Delivery Note";
   var rows=(t.lineItems||[]).map(function(li){
+    if(isNote) return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td><td class="num">'+num(li.deliveredQty)+'</td><td class="num">'+(lineLeft(li)||"—")+'</td></tr>';
     return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td>'+
       (showMoney ? '<td class="num">'+money(li.unitPrice)+'</td><td class="num">'+money(num(li.qty)*num(li.unitPrice))+'</td>' : '')+
       '</tr>';
@@ -1117,7 +1153,8 @@ function openDoc(t, kind){
       '<div><div class="k">'+(kind==="Quotation"?"Valid until":"Reference")+'</div><div class="v">'+
         (kind==="Quotation" ? fmtDate(addDays(txDocDate(t), num(s.validityDays))) : esc(t.refNo))+'</div></div>'+
     '</div>'+
-    '<table><thead><tr><th>Item</th><th class="num">Qty</th>'+(showMoney?'<th class="num">Unit</th><th class="num">Amount</th>':'')+'</tr></thead>'+
+    '<table><thead><tr><th>Item</th>'+(isNote ? '<th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Still to come</th>'
+      : '<th class="num">Qty</th>'+(showMoney?'<th class="num">Unit</th><th class="num">Amount</th>':''))+'</tr></thead>'+
       '<tbody>'+rows+'</tbody></table>'+
     totals+
     (kind==="Receipt" && pays.length ?
@@ -1195,7 +1232,7 @@ function renderInventory(){
       editStock(p[0], byId(list, p[1]));
     });
   });
-  renderOrders(); renderSuppliers();
+  renderOrders(); renderSuppliers(); renderToDeliver();
 }
 function wireAddButtons(){
   document.querySelectorAll("[data-add]").forEach(function(b){
@@ -1412,6 +1449,34 @@ function receiveOrder(){
   }, function(){ closeForm(); }, "Stock received and cost recorded");
 }
 
+/* ---------- To deliver: invoiced lines not yet handed over ---------- */
+function toDeliverRows(){
+  var rows=[];
+  state.transactions.filter(function(t){ return t.status==="Invoiced"; }).forEach(function(t){
+    var plan=deliveryPlan(t), ready={};
+    plan.now.forEach(function(r){ ready[r.name]=(ready[r.name]||0)+r.qty; });
+    (t.lineItems||[]).forEach(function(li){
+      var left=lineLeft(li); if(!left) return;
+      var r=Math.min(left, ready[li.name]||0); if(r) ready[li.name]-=r;
+      rows.push({t:t, li:li, left:left, ready:r});
+    });
+  });
+  return rows;
+}
+function renderToDeliver(){
+  var rows=toDeliverRows();
+  $("deliver-body").innerHTML = rows.length ? rows.map(function(r){
+    var st = r.ready>=r.left ? '<span class="pill good">Ready</span>'
+      : (r.ready>0 ? '<span class="pill warn">'+r.ready+' ready</span>' : '<span class="pill bad">Waiting for stock</span>');
+    return '<tr class="clickable" data-dt="'+r.t.id+'"><td class="mono">'+esc(r.t.refNo)+'<div class="tiny faint">'+fmtDate(r.t.invoiceDate)+'</div></td>'+
+      '<td class="strong">'+esc(r.t.clientName||"")+'</td><td>'+esc(r.li.name)+'</td>'+
+      '<td class="num">'+num(r.li.qty)+'</td><td class="num">'+num(r.li.deliveredQty)+'</td><td class="num strong">'+r.left+'</td><td>'+st+'</td></tr>';
+  }).join("") : emptyRow(7,"Everything invoiced has been delivered.");
+  $("deliver-body").querySelectorAll("[data-dt]").forEach(function(r){
+    r.addEventListener("click", function(){ setView("sales"); openTx(r.dataset.dt); });
+  });
+}
+
 /* ---------- Suppliers ---------- */
 function renderSuppliers(){
   $("sup-body").innerHTML = state.suppliers.length ? state.suppliers.map(function(s){
@@ -1491,7 +1556,7 @@ function openContact(id){
     '<div class="section"><p class="eyebrow">Statement</p><div class="panel"><div class="table-wrap"><table>'+
       '<thead><tr><th>Reference</th><th>Stage</th><th>Date</th><th class="num">Total</th><th class="num">Balance</th></tr></thead><tbody>'+
       (rows.length ? rows.map(function(t){
-        return '<tr class="clickable" data-t="'+t.id+'"><td class="mono">'+esc(t.refNo)+'</td><td>'+stagePill(t.status)+'</td>'+
+        return '<tr class="clickable" data-t="'+t.id+'"><td class="mono">'+esc(t.refNo)+'</td><td>'+dealStage(t)+'</td>'+
           '<td class="tiny muted">'+fmtDate(txRecognisedDate(t))+'</td><td class="num">'+money(txTotal(t))+'</td>'+
           '<td class="num">'+(txBalance(t)>0.004?money(txBalance(t)):'<span class="faint">—</span>')+'</td></tr>';
       }).join("") : emptyRow(5,"No deals with this contact yet."))+

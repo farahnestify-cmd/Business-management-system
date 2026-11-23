@@ -27,6 +27,7 @@ Route::middleware('auth')->group(function () {
         Route::post('transactions/{transaction}/payments', [SalesController::class, 'pay']);
         Route::put('transactions/{transaction}', [SalesController::class, 'update']);
         Route::post('transactions/{transaction}/advance', [SalesController::class, 'advance']);
+        Route::post('transactions/{transaction}/deliver', [SalesController::class, 'deliver']);
         Route::post('transactions/{transaction}/refunds', [SalesController::class, 'refund']);
 
         Route::post('purchase_orders', [PurchaseOrderController::class, 'store']);

@@ -10,12 +10,18 @@ class TransactionItem extends Model
 
     protected $guarded = [];
 
+    public function remaining(): int
+    {
+        return max(0, $this->qty - (int) $this->delivered_qty);
+    }
+
     public function toApi(): array
     {
         $row = [
             'kind' => $this->kind,
             'name' => $this->name,
             'qty' => (int) $this->qty,
+            'deliveredQty' => (int) $this->delivered_qty,
             'standardPrice' => (float) $this->standard_price,
             'unitPrice' => (float) $this->unit_price,
             'costSnapshot' => (float) $this->cost_snapshot,

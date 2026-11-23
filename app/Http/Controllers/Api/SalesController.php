@@ -187,12 +187,18 @@ class SalesController extends Controller
     {
         $data = $request->validate(['status' => 'required|in:Agreement,Invoiced,Delivered,Cancelled']);
         $next = $data['status'];
+        if ($next === 'Delivered') {
+            return $this->deliver($transaction);
+        }
 
         return DB::transaction(function () use ($transaction, $next) {
-            // Locked so a double click cannot run the stage change (and the stock move) twice.
+            // Locked so a double click cannot run the stage change twice.
             $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
             if (! in_array($next, Transaction::NEXT[$tx->status] ?? [], true)) {
                 return response()->json(['message' => "A deal in {$tx->status} cannot move to $next."], 409);
+            }
+            if ($next === 'Cancelled' && $tx->items->sum('delivered_qty') > 0) {
+                return response()->json(['message' => 'Part of this deal has already been delivered, so it cannot be cancelled.'], 409);
             }
 
             $today = now()->toDateString();
@@ -203,10 +209,6 @@ class SalesController extends Controller
             if ($next === 'Invoiced') {
                 $tx->invoice_date = $today;
             }
-            if ($next === 'Delivered') {
-                $tx->delivered_date = $today;
-                $this->takeOutOfStock($tx);
-            }
             $tx->save();
 
             return response()->json(['ok' => true]);
@@ -214,44 +216,71 @@ class SalesController extends Controller
     }
 
     /**
-     * Delivered goods leave the shelf. Refuses the whole delivery when any item
-     * is short, so stock never silently drops below what was really there.
+     * Hand over whatever is on the shelf. Lines that are short are delivered
+     * in part and the rest waits for stock; the deal becomes Delivered only
+     * once every line is complete. Can be called again as stock arrives.
      */
-    private function takeOutOfStock(Transaction $tx): void
+    public function deliver(Transaction $transaction)
     {
-        $needs = [];
-        foreach ($tx->items as $li) {
-            $parts = $li->kind === 'combo'
-                ? [[Base::class, $li->base_id], [Cover::class, $li->cover_id]]
-                : [[Product::class, $li->product_id]];
-            foreach ($parts as [$class, $id]) {
-                if ($id) {
-                    $needs[$class.':'.$id] = ($needs[$class.':'.$id] ?? 0) + $li->qty;
+        return DB::transaction(function () use ($transaction) {
+            $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
+            if ($tx->status !== 'Invoiced') {
+                return response()->json(['message' => "A deal in {$tx->status} cannot be delivered. Invoice it first."], 409);
+            }
+
+            $stock = [];
+            $load = function (string $class, $id) use (&$stock) {
+                $key = $class.':'.$id;
+                if (! array_key_exists($key, $stock)) {
+                    $stock[$key] = $id ? $class::lockForUpdate()->find($id) : null;
+                }
+
+                return $stock[$key];
+            };
+
+            $handed = [];
+            $waiting = [];
+            foreach ($tx->items as $li) {
+                $left = $li->remaining();
+                if ($left === 0) {
+                    continue;
+                }
+                $parts = $li->kind === 'combo'
+                    ? [$load(Base::class, $li->base_id), $load(Cover::class, $li->cover_id)]
+                    : [$load(Product::class, $li->product_id)];
+                $parts = array_filter($parts);
+                // A base + cover pair can only go out as many times as the scarcer half allows.
+                $take = $parts ? min($left, ...array_map(fn ($m) => max(0, $m->stock_on_hand), $parts)) : 0;
+
+                if ($take > 0) {
+                    foreach ($parts as $m) {
+                        $m->stock_on_hand -= $take;
+                    }
+                    $li->delivered_qty += $take;
+                    $li->save();
+                    $handed[] = ['name' => $li->name, 'qty' => $take];
+                }
+                if ($left - $take > 0) {
+                    $waiting[] = ['name' => $li->name, 'qty' => $left - $take];
                 }
             }
-        }
 
-        $items = [];
-        $short = [];
-        foreach ($needs as $key => $qty) {
-            [$class, $id] = explode(':', $key);
-            $item = $class::lockForUpdate()->find($id);
-            if (! $item) {
-                continue;
+            if (! $handed) {
+                throw ValidationException::withMessages(['status' => 'Nothing to deliver yet: none of the remaining items are in stock.']);
             }
-            if ($item->stock_on_hand < $qty) {
-                $short[] = "{$item->name} (need $qty, have {$item->stock_on_hand})";
+            foreach (array_filter($stock) as $m) {
+                $m->save();
             }
-            $items[] = [$item, $qty];
-        }
 
-        if ($short) {
-            throw ValidationException::withMessages(['status' => 'Not enough stock to deliver: '.implode(', ', $short).'. Receive the purchase order or correct the stock first.']);
-        }
-        foreach ($items as [$item, $qty]) {
-            $item->stock_on_hand -= $qty;
-            $item->save();
-        }
+            $complete = ! $waiting;
+            if ($complete) {
+                $tx->status = 'Delivered';
+                $tx->delivered_date = now()->toDateString();
+                $tx->save();
+            }
+
+            return response()->json(['ok' => true, 'complete' => $complete, 'delivered' => $handed, 'waiting' => $waiting]);
+        });
     }
 
     private function offerRules(): array

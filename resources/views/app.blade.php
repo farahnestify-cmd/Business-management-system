@@ -117,6 +117,7 @@
           <button type="button" data-t="stock" aria-pressed="true">Stock</button>
           <button type="button" data-t="orders">Purchase orders</button>
           <button type="button" data-t="suppliers">Suppliers</button>
+          <button type="button" data-t="deliver">To deliver</button>
         </div>
 
         <div id="inv-pane-stock">
@@ -161,6 +162,18 @@
             <div class="panel"><div class="table-wrap"><table>
               <thead><tr><th>Order</th><th>Supplier</th><th>Stage</th><th>Ordered</th><th>Expected</th><th class="num">Items</th><th class="num">Cost</th></tr></thead>
               <tbody id="po-body"></tbody>
+            </table></div></div>
+          </div>
+        </div>
+
+        <div id="inv-pane-deliver" hidden>
+          <div class="section">
+            <div class="section-head">
+              <div><h2>To deliver</h2><p class="sub">Invoiced items not handed over yet. Open a deal and press Deliver once the stock is in — whatever is on the shelf goes out, the rest stays here.</p></div>
+            </div>
+            <div class="panel"><div class="table-wrap"><table>
+              <thead><tr><th>Deal</th><th>Client</th><th>Item</th><th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Still to deliver</th><th>Status</th></tr></thead>
+              <tbody id="deliver-body"></tbody>
             </table></div></div>
           </div>
         </div>
