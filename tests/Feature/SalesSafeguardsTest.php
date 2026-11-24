@@ -88,6 +88,22 @@ class SalesSafeguardsTest extends TestCase
         $this->postJson("/api/transactions/$id/deliver")->assertStatus(409);
     }
 
+    public function test_each_delivery_round_is_logged_for_the_item_history(): void
+    {
+        $id = $this->quote(5);
+        $this->moveTo($id, 'Agreement', 'Invoiced');
+        $this->postJson("/api/transactions/$id/deliver")->assertOk();
+        $this->product->update(['stock_on_hand' => 2]);
+        $this->postJson("/api/transactions/$id/deliver")->assertOk();
+
+        $log = $this->getJson('/api/bootstrap')->json('deliveries');
+        $this->assertCount(2, $log);
+        $this->assertEqualsCanonicalizing([3, 2], array_column($log, 'qty'));
+        $this->assertSame((string) $this->product->id, $log[0]['productId']);
+        $this->assertSame($id, $log[0]['transactionId']);
+        $this->assertSame('O', $log[0]['by']);
+    }
+
     public function test_base_and_cover_pair_goes_out_as_many_times_as_the_scarcer_half(): void
     {
         $base = Base::create(['name' => 'Switch', 'line' => 'Q', 'stock_on_hand' => 10]);

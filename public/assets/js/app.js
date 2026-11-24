@@ -15,7 +15,7 @@ var DEFAULTS = {
 var state = {
   view:"today", tab:{inventory:"stock", money:"pl"},
   filters:{sales:"open", contacts:"all", ledger:"all"},
-  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[],
+  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[],
   employees:[], payroll:[], suppliers:[], orders:[], users:[], user:null,
   settings:Object.assign({}, DEFAULTS),
   offer:{lines:[]}, ready:false, q:""
@@ -346,7 +346,7 @@ function api(method, path, body){
 function reload(){
   if(loading) return loading;
   loading = api("GET", "bootstrap").then(function(d){
-    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users"].forEach(function(k){
+    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries"].forEach(function(k){
       state[k] = d[k] || [];
     });
     state.user = d.user;
@@ -539,7 +539,7 @@ function searchIndex(){
     out.push({label:c.name, meta:c.type+" · "+c.region, type:"Contact", go:function(){ setView("contacts"); openContact(c.id); }});
   });
   allStockRows().forEach(function(r){
-    out.push({label:r.label, meta:money(itemCost(r.item))+" cost", type:"Stock", go:function(){ setView("inventory"); editStock(r.kind, r.item); }});
+    out.push({label:r.label, meta:money(itemCost(r.item))+" cost", type:"Stock", go:function(){ setView("inventory"); openStockItem(r.kind, r.item); }});
   });
   state.orders.forEach(function(o){
     out.push({label:o.supplierName||"Purchase order", meta:o.refNo, type:"Order", go:function(){ setView("inventory"); state.tab.inventory="orders"; editOrder(o); }});
@@ -689,7 +689,7 @@ function buildQueue(){
       items.push({sev: inc>0 ? "info" : "warn", area:"inventory",
         title:r.label+" is down to "+availableOf(r.kind,r.item),
         detail: inc>0 ? inc+" on the way" : "Reorder point is "+num(r.item.reorderThreshold),
-        value:"", go:function(){ setView("inventory"); editStock(r.kind, r.item); }});
+        value:"", go:function(){ setView("inventory"); openStockItem(r.kind, r.item); }});
     }
   });
   state.transactions.filter(function(t){ return t.status==="Invoiced" && deliveredSome(t); }).forEach(function(t){
@@ -1229,7 +1229,7 @@ function renderInventory(){
     r.addEventListener("click", function(){
       var p=r.dataset.edit.split(":");
       var list = p[0]==="product" ? state.products : (p[0]==="base" ? state.bases : state.covers);
-      editStock(p[0], byId(list, p[1]));
+      openStockItem(p[0], byId(list, p[1]));
     });
   });
   renderOrders(); renderSuppliers(); renderToDeliver();
@@ -1245,6 +1245,81 @@ function wireAddButtons(){
       if(k==="employee") editEmployee(null);
     });
   });
+}
+
+/* ---------- Stock item card: who it is reserved for, what is coming, where it went ---------- */
+function lineUses(li, kind, id){
+  if(kind==="product") return li.kind!=="combo" && li.productId===id;
+  if(kind==="base") return li.kind==="combo" && li.baseId===id;
+  return li.kind==="combo" && li.coverId===id;
+}
+function reservationsFor(kind, id){
+  var rows=[];
+  state.transactions.forEach(function(t){
+    if(t.status!=="Agreement" && t.status!=="Invoiced") return;
+    var q=sum((t.lineItems||[]).filter(function(li){ return lineUses(li,kind,id); }), lineLeft);
+    if(q>0) rows.push({t:t, qty:q});
+  });
+  return sortBy(rows, function(r){ return r.t.agreementDate||r.t.quotationDate||""; });
+}
+function stockHistory(kind, id){
+  var rows=[];
+  state.deliveries.forEach(function(d){
+    if(!lineUses(d, kind, id)) return;
+    var t=byId(state.transactions, d.transactionId)||{};
+    rows.push({date:d.date, what:"Delivered to "+(t.clientName||"—"), ref:t.refNo||"", qty:-num(d.qty), by:d.by, go:t.id ? function(){ openTx(t.id); } : null});
+  });
+  state.orders.forEach(function(o){
+    if(o.status!=="Received") return;
+    (o.lines||[]).forEach(function(l){
+      if(l.kind===kind && l.itemId===id) rows.push({date:o.receivedDate, what:"Received from "+(o.supplierName||"supplier"), ref:o.refNo, qty:num(l.qty)});
+    });
+  });
+  if(kind==="product") state.expenses.forEach(function(e){
+    if(e.linkedProductId===id && num(e.qtyPurchased)>0) rows.push({date:e.date, what:"Restocked — "+(e.description||"expense"), ref:e.vendor||"", qty:num(e.qtyPurchased)});
+  });
+  return sortBy(rows, function(r){ return r.date||""; }, true);
+}
+function openStockItem(kind, item){
+  if(!item) return;
+  var res=reservationsFor(kind, item.id), hist=stockHistory(kind, item.id), go=[];
+  var incoming=[];
+  state.orders.forEach(function(o){
+    if(o.status!=="Ordered") return;
+    var q=sum((o.lines||[]).filter(function(l){ return l.kind===kind && l.itemId===item.id; }), function(l){ return l.qty; });
+    if(q>0) incoming.push({o:o, qty:q});
+  });
+  var link=function(fn){ go.push(fn); return ' class="clickable" data-go="'+(go.length-1)+'"'; };
+  var html=
+    '<div class="figures" style="border-radius:var(--radius)">'+
+      figure("On hand", String(num(item.stockOnHand)))+figure("Reserved", String(reservedFor(kind,item.id)))+
+      figure("Available", availCell(kind,item))+figure("Incoming", String(incomingFor(kind,item.id)))+
+    '</div>'+
+    '<div class="section"><p class="eyebrow">Reserved for</p><div class="panel"><div class="table-wrap"><table>'+
+      '<thead><tr><th>Deal</th><th>Client</th><th>Stage</th><th class="num">Reserved</th></tr></thead><tbody>'+
+      (res.length ? res.map(function(r){
+        return '<tr'+link(function(){ openTx(r.t.id); })+'><td class="mono">'+esc(r.t.refNo)+'</td><td class="strong">'+esc(r.t.clientName||"")+'</td>'+
+          '<td>'+dealStage(r.t)+'</td><td class="num strong">'+r.qty+'</td></tr>';
+      }).join("") : emptyRow(4,"Nothing reserved — no agreement or invoice is waiting for this item."))+
+    '</tbody></table></div></div></div>'+
+    (incoming.length ? '<div class="section"><p class="eyebrow">On order</p><div class="panel"><div class="table-wrap"><table><tbody>'+
+      incoming.map(function(r){
+        return '<tr'+link(function(){ closeDrawer(); setView("inventory"); editOrder(r.o); })+'><td class="mono">'+esc(r.o.refNo)+'</td><td>'+esc(r.o.supplierName||"")+'</td>'+
+          '<td class="tiny muted">'+(r.o.expectedDate ? "due "+fmtDate(r.o.expectedDate) : "")+'</td><td class="num">+'+r.qty+'</td></tr>';
+      }).join("")+'</tbody></table></div></div></div>' : '')+
+    '<div class="section"><p class="eyebrow">History</p><div class="panel"><div class="table-wrap"><table>'+
+      '<thead><tr><th>Date</th><th>Movement</th><th>Reference</th><th class="num">Qty</th></tr></thead><tbody>'+
+      (hist.length ? hist.map(function(r){
+        return '<tr'+(r.go ? link(r.go) : '')+'><td>'+fmtDate(r.date)+'</td><td>'+esc(r.what)+(r.by ? '<div class="tiny faint">by '+esc(r.by)+'</div>' : '')+'</td>'+
+          '<td class="mono tiny">'+esc(r.ref)+'</td><td class="num strong" style="color:'+(r.qty<0?"var(--bad)":"var(--good)")+'">'+(r.qty>0?"+":"")+r.qty+'</td></tr>';
+      }).join("") : emptyRow(4,"No movements recorded yet."))+
+    '</tbody></table></div></div></div>'+
+    '<div style="display:flex; gap:8px"><button class="btn sm" type="button" id="si-edit">Edit item</button></div>';
+  openDrawer(item.name, html);
+  $("drawer-body").querySelectorAll("[data-go]").forEach(function(r){
+    r.addEventListener("click", function(){ go[Number(r.dataset.go)](); });
+  });
+  $("si-edit").addEventListener("click", function(){ closeDrawer(); editStock(kind, item); });
 }
 
 function editStock(kind, item){

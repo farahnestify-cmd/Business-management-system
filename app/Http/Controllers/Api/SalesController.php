@@ -7,6 +7,7 @@ use App\Models\Base;
 use App\Models\Client;
 use App\Models\CompanySetting;
 use App\Models\Cover;
+use App\Models\Delivery;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Transaction;
@@ -258,6 +259,10 @@ class SalesController extends Controller
                     }
                     $li->delivered_qty += $take;
                     $li->save();
+                    Delivery::create([
+                        'transaction_id' => $tx->id, 'transaction_item_id' => $li->id, 'qty' => $take,
+                        'delivered_on' => now()->toDateString(), 'user_id' => auth()->id(),
+                    ]);
                     $handed[] = ['name' => $li->name, 'qty' => $take];
                 }
                 if ($left - $take > 0) {

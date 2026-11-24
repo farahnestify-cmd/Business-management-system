@@ -7,6 +7,7 @@ use App\Models\Base;
 use App\Models\Client;
 use App\Models\CompanySetting;
 use App\Models\Cover;
+use App\Models\Delivery;
 use App\Models\Employee;
 use App\Models\Expense;
 use App\Models\PayrollPayment;
@@ -39,6 +40,7 @@ class BootstrapController extends Controller
             'transactions' => $api(Transaction::with(['items', 'payments'])->orderByDesc('created_at')->orderByDesc('id')->get()),
             'expenses' => $api(Expense::orderByDesc('date')->orderByDesc('id')->get()),
             'suppliers' => $api(Supplier::orderBy('name')->get()),
+            'deliveries' => $api(Delivery::with(['line', 'user'])->orderByDesc('delivered_on')->orderByDesc('id')->get()),
             'orders' => $api(PurchaseOrder::with('lines')->orderByDesc('ordered_date')->orderByDesc('id')->get()),
             // Salary data never leaves the server for staff accounts.
             'employees' => $owner ? $api(Employee::orderBy('name')->get()) : [],
