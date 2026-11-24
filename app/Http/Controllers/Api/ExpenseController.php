@@ -39,7 +39,7 @@ class ExpenseController extends Controller
             RecycleBin::trash('expense', $expense, $expense->description.' · $'.number_format((float) $expense->amount, 2));
         });
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
     }
 
     private function persist(Expense $expense, Request $request): Expense

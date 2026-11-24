@@ -39,6 +39,7 @@ Route::middleware('auth')->group(function () {
         Route::delete('offer_sets/{offerSet}', [OfferSetController::class, 'destroy']);
 
         Route::post('account/password', [AccountController::class, 'password']);
+        Route::post('undo/{token}', [DataController::class, 'undo'])->where('token', '[A-Za-z0-9]{32}');
 
         Route::middleware('manager')->group(function () {
             Route::put('settings', [SettingsController::class, 'update']);

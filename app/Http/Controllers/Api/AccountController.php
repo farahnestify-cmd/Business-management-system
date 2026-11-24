@@ -54,7 +54,7 @@ class AccountController extends Controller
         }
         RecycleBin::trash('user', $user, $user->name.' · '.$user->email);
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
     }
 
     public function password(Request $request)

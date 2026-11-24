@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\PayrollPayment;
 use App\Support\RecycleBin;
+use App\Support\Undo;
 use Illuminate\Http\Request;
 
 /**
@@ -36,13 +37,13 @@ class PayrollController extends Controller
             'method' => $data['method'] ?? 'Cash',
         ]);
 
-        return response()->json(['id' => (string) $payment->id], 201);
+        return response()->json(['id' => (string) $payment->id, 'undo' => Undo::offer('payroll', ['id' => $payment->id])], 201);
     }
 
     public function destroy(PayrollPayment $payrollPayment)
     {
         RecycleBin::trash('payroll_payment', $payrollPayment, $payrollPayment->employee_name.' · '.$payrollPayment->month);
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
     }
 }

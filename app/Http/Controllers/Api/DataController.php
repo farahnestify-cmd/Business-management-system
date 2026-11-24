@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DeletedRecord;
 use App\Models\User;
 use App\Support\RecycleBin;
+use App\Support\Undo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -93,6 +94,16 @@ class DataController extends Controller
     {
         try {
             return response()->json(['ok' => true, 'message' => RecycleBin::restore($deletedRecord)]);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+    }
+
+    /** The Undo button: reverse what this person just did. */
+    public function undo(string $token)
+    {
+        try {
+            return response()->json(['ok' => true, 'message' => Undo::run($token)]);
         } catch (RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 409);
         }

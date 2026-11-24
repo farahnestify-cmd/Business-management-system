@@ -32,7 +32,7 @@ class OfferSetController extends Controller
     {
         DB::transaction(fn () => RecycleBin::trash('offer_set', $offerSet, $offerSet->name));
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
     }
 
     private function validated(Request $request, ?OfferSet $existing = null): array

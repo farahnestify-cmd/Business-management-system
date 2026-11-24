@@ -52,6 +52,9 @@ class RecycleBin
     }
 
     /** Copy the record into the bin, then delete it. */
+    /** The Undo ticket for the most recent delete in this request. */
+    public static ?string $lastUndo = null;
+
     public static function trash(string $kind, Model $model, string $label): void
     {
         $payload = ['row' => $model->getAttributes(), 'children' => [], 'links' => []];
@@ -72,13 +75,14 @@ class RecycleBin
             $label .= $tx ? ' · '.$tx->ref_no.' · '.$tx->client_name : '';
         }
 
-        DeletedRecord::create([
+        $rec = DeletedRecord::create([
             'kind' => $kind,
             'label' => $label,
             'payload' => $payload,
             'deleted_by' => auth()->id(),
         ]);
         $model->delete();
+        self::$lastUndo = Undo::offer('trash', ['id' => $rec->id]);
     }
 
     /** Put a record back; returns a short description of what came back. */

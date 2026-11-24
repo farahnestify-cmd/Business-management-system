@@ -88,7 +88,7 @@ class PurchaseOrderController extends Controller
         }
         DB::transaction(fn () => RecycleBin::trash('purchase_order', $purchaseOrder, $purchaseOrder->ref_no.' · '.$purchaseOrder->supplier_name));
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
     }
 
     private function persist(PurchaseOrder $po, Request $request): PurchaseOrder

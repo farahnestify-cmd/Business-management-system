@@ -124,7 +124,7 @@ class RecordController extends Controller
             'suppliers' => 'supplier', 'employees' => 'employee', 'services' => 'service'][$collection];
         DB::transaction(fn () => RecycleBin::trash($kind, $model, $model->name));
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
     }
 
     private function guard(Request $request, string $collection): array

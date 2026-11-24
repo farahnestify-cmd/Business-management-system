@@ -60,9 +60,21 @@ function sortBy(arr, fn, desc){
 }
 function sum(arr, fn){ return arr.reduce(function(s,x){ return s + num(fn(x)); },0); }
 
-function toast(msg, bad){
-  var t=$("toast"); t.textContent=msg; t.className = bad?"bad":""; t.hidden=false;
-  clearTimeout(t._h); t._h=setTimeout(function(){ t.hidden=true; }, 3000);
+function toast(msg, bad, undoToken){
+  var t=$("toast"); t.className = bad?"bad":""; t.innerHTML="";
+  var span=document.createElement("span"); span.textContent=msg; t.appendChild(span);
+  /* An action that can be taken back carries an Undo button for a while. */
+  if(undoToken){
+    var b=document.createElement("button"); b.type="button"; b.textContent="Undo";
+    b.addEventListener("click", function(){
+      t.hidden=true; clearTimeout(t._h);
+      api("POST", "undo/"+undoToken).then(function(res){ return reload().then(function(){ closeDrawer(); toast(res.message||"Undone"); }); })
+        .catch(function(e){ toast(e.message, true); });
+    });
+    t.appendChild(b);
+  }
+  t.hidden=false;
+  clearTimeout(t._h); t._h=setTimeout(function(){ t.hidden=true; }, undoToken ? 14000 : 3000);
 }
 
 /* Tooltip used by the chart */
@@ -393,7 +405,7 @@ function send(method, path, body, done, okMsg){
   sending=true; document.body.style.cursor="progress";
   document.querySelectorAll("#drawer-body button, #form-overlay .sheet-foot button").forEach(function(b){ b.disabled=true; });
   return api(method, path, body).then(function(res){
-    return reload().then(function(){ if(okMsg) toast(okMsg); if(done) done(res); });
+    return reload().then(function(){ if(okMsg) toast(okMsg, false, res && res.undo); if(done) done(res); });
   }).catch(function(e){
     if(e.message!=="Signed out") toast(e.message || "Could not save", true);
   }).then(function(){
@@ -407,7 +419,7 @@ function save(collection, id, data, done){
 function remove(collection, id, what, done){
   if(!window.confirm("Delete " + (what || "this record") + "? The owner can restore it from Recently deleted.")) return;
   send("DELETE", collection + "/" + id, null, function(){ closeForm(); if(done) done(); },
-    isOwner() ? "Moved to Recently deleted — you can restore it from Company settings" : "Deleted");
+    "Deleted");
 }
 function isOwner(){ return !!(state.user && state.user.role==="owner"); }
 function isManager(){ return !!(state.user && (state.user.role==="owner" || state.user.role==="admin")); }
@@ -1036,7 +1048,7 @@ function advance(t, next){
     /* Hands over what is on the shelf; anything short waits on the To deliver list. */
     send("POST", "transactions/"+t.id+"/deliver", {}, function(res){
       closeDrawer();
-      toast(res && res.complete ? t.refNo+" is fully delivered" : t.refNo+" part delivered — still to come: "+listQty((res&&res.waiting)||[]));
+      toast(res && res.complete ? t.refNo+" is fully delivered" : t.refNo+" part delivered — still to come: "+listQty((res&&res.waiting)||[]), false, res && res.undo);
     });
     return;
   }
@@ -1048,7 +1060,7 @@ function advance(t, next){
   send("POST", "transactions/"+t.id+"/advance", {status:next}, function(res){
     closeDrawer();
     var n=res && res.closedVersions;
-    toast(t.refNo+" is now "+next.toLowerCase()+(n ? " — "+n+(n===1 ? " other version" : " other versions")+" cancelled" : ""));
+    toast(t.refNo+" is now "+next.toLowerCase()+(n ? " — "+n+(n===1 ? " other version" : " other versions")+" cancelled" : ""), false, res && res.undo);
   });
 }
 
@@ -2392,7 +2404,7 @@ function renderTeam(){
 function payEmployee(id){
   var e=byId(state.employees,id); if(!e) return;
   var mk=thisMonth().replace("-","").slice(2);
-  save("payroll_payments", null, {employeeId:e.id, method:"Cash"}, function(){ toast(e.name+" marked paid"); });
+  save("payroll_payments", null, {employeeId:e.id, method:"Cash"}, function(res){ toast(e.name+" marked paid", false, res && res.undo); });
 }
 function editEmployee(e){
   var isNew=!e; var d=e||{name:"", role:"", monthlySalary:0, active:true, notes:""};

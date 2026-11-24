@@ -14,6 +14,7 @@ use App\Models\Product;
 use App\Models\Service;
 use App\Models\Transaction;
 use App\Support\RecycleBin;
+use App\Support\Undo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -208,14 +209,14 @@ class SalesController extends Controller
                     : 'This deal is already paid in full.']);
             }
 
-            $tx->payments()->create([
+            $payment = $tx->payments()->create([
                 'date' => $data['date'] ?? now()->toDateString(),
                 'amount' => $data['amount'],
                 'method' => $data['method'],
                 'type' => $tx->payments()->exists() ? 'Balance Payment' : 'Down Payment',
             ]);
 
-            return response()->json(['ok' => true]);
+            return response()->json(['ok' => true, 'undo' => Undo::offer('payment', ['payment_id' => $payment->id])]);
         });
     }
 
@@ -242,14 +243,14 @@ class SalesController extends Controller
                 throw ValidationException::withMessages(['amount' => 'Only $'.number_format($refundable, 2).' is owed back to the client.']);
             }
 
-            $tx->payments()->create([
+            $payment = $tx->payments()->create([
                 'date' => $data['date'] ?? now()->toDateString(),
                 'amount' => -$data['amount'],
                 'method' => $data['method'],
                 'type' => 'Refund',
             ]);
 
-            return response()->json(['ok' => true]);
+            return response()->json(['ok' => true, 'undo' => Undo::offer('payment', ['payment_id' => $payment->id])]);
         });
     }
 
@@ -285,7 +286,7 @@ class SalesController extends Controller
             ]);
             $stage->update(['payment_id' => $payment->id]);
 
-            return response()->json(['ok' => true]);
+            return response()->json(['ok' => true, 'undo' => Undo::offer('payment', ['payment_id' => $payment->id])]);
         });
     }
 
@@ -294,7 +295,7 @@ class SalesController extends Controller
     {
         DB::transaction(fn () => RecycleBin::trash('payment', $payment, '$'.number_format((float) $payment->amount, 2).' '.$payment->type));
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
     }
 
     public function advance(Request $request, Transaction $transaction)
@@ -316,19 +317,25 @@ class SalesController extends Controller
             }
 
             $today = now()->toDateString();
+            $before = ['status' => $tx->status, 'agreement_date' => optional($tx->agreement_date)->toDateString() ?? $tx->agreement_date,
+                'invoice_date' => optional($tx->invoice_date)->toDateString() ?? $tx->invoice_date];
             $tx->status = $next;
             $closed = 0;
+            $reopen = [];
             if ($next === 'Agreement') {
                 $tx->agreement_date = $today;
                 // Only one version can become the deal; the other quotations for the same job close.
-                $closed = $tx->versions()->where('id', '!=', $tx->id)->where('status', 'Quotation')->update(['status' => 'Cancelled']);
+                $siblings = $tx->versions()->where('id', '!=', $tx->id)->where('status', 'Quotation');
+                $reopen = $siblings->pluck('id')->all();
+                $closed = $siblings->update(['status' => 'Cancelled']);
             }
             if ($next === 'Invoiced') {
                 $tx->invoice_date = $today;
             }
             $tx->save();
 
-            return response()->json(['ok' => true, 'closedVersions' => $closed]);
+            return response()->json(['ok' => true, 'closedVersions' => $closed,
+                'undo' => Undo::offer('advance', ['tx_id' => $tx->id, 'after' => $next, 'before' => $before, 'reopen' => $reopen])]);
         });
     }
 
@@ -357,6 +364,7 @@ class SalesController extends Controller
 
             $handed = [];
             $waiting = [];
+            $round = [];
             foreach ($tx->items as $li) {
                 $left = $li->remaining();
                 if ($left === 0) {
@@ -375,7 +383,7 @@ class SalesController extends Controller
                     }
                     $li->delivered_qty += $take;
                     $li->save();
-                    Delivery::create([
+                    $round[] = Delivery::create([
                         'transaction_id' => $tx->id, 'transaction_item_id' => $li->id, 'qty' => $take,
                         'delivered_on' => now()->toDateString(), 'user_id' => auth()->id(),
                     ]);
@@ -400,7 +408,8 @@ class SalesController extends Controller
                 $tx->save();
             }
 
-            return response()->json(['ok' => true, 'complete' => $complete, 'delivered' => $handed, 'waiting' => $waiting]);
+            return response()->json(['ok' => true, 'complete' => $complete, 'delivered' => $handed, 'waiting' => $waiting,
+                'undo' => Undo::offer('deliver', ['tx_id' => $tx->id, 'delivery_ids' => array_map(fn ($d) => $d->id, $round)])]);
         });
     }
 
