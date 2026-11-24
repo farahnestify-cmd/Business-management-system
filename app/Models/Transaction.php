@@ -89,6 +89,8 @@ class Transaction extends Model
             'serviceType' => $this->service_type,
             'status' => $this->status,
             'vatPct' => (float) $this->vat_pct,
+            'currency' => $this->currency ?: 'USD',
+            'fxRate' => (float) ($this->fx_rate ?: 1),
             'lineItems' => $this->items->map(fn ($li) => $li->toApi())->values()->all(),
             'payments' => $this->payments->map(fn ($p) => $p->toApi())->values()->all(),
             'milestones' => $this->milestones->map(fn ($m) => $m->toApi())->values()->all(),

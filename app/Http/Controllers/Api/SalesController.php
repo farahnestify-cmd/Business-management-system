@@ -7,6 +7,7 @@ use App\Models\Base;
 use App\Models\Client;
 use App\Models\CompanySetting;
 use App\Models\Cover;
+use App\Models\Currency;
 use App\Models\Delivery;
 use App\Models\Milestone;
 use App\Models\Payment;
@@ -50,8 +51,9 @@ class SalesController extends Controller
         $date = Carbon::parse($data['date']);
         $yymm = $date->format('ym');
         [$rc, $tc] = $this->codes($data);
+        [$cur, $rate] = $this->currency($data);
 
-        $tx = DB::transaction(function () use ($data, $client, $items, $date, $yymm, $rc, $tc, $settings, $paid) {
+        $tx = DB::transaction(function () use ($data, $client, $items, $date, $yymm, $rc, $tc, $settings, $paid, $cur, $rate) {
             $seq = (int) Transaction::where('yymm', $yymm)->lockForUpdate()->max('seq') + 1;
             $tx = Transaction::create([
                 'ref_no' => $this->ref($yymm, $rc, $tc, $seq),
@@ -59,6 +61,7 @@ class SalesController extends Controller
                 'client_id' => $client->id, 'client_name' => $client->name, 'client_type' => $client->type,
                 'region' => $data['region'], 'service_type' => $data['serviceType'], 'status' => 'Quotation',
                 'vat_pct' => $settings->vat_pct,
+                'currency' => $cur, 'fx_rate' => $rate,
                 'quotation_date' => $date->toDateString(),
                 'due_date' => $data['dueDate'] ?? null,
                 'site' => $data['site'] ?? null,
@@ -109,7 +112,8 @@ class SalesController extends Controller
         }
 
         [$rc, $tc] = $this->codes($data);
-        DB::transaction(function () use ($transaction, $data, $client, $items, $rc, $tc) {
+        [$cur, $rate] = $this->currency($data, $paid > 0 ? $transaction : null);
+        DB::transaction(function () use ($transaction, $data, $client, $items, $rc, $tc, $cur, $rate) {
             // The counter and month stay, so the reference keeps its place in the sequence. Once an
             // offer has versions its reference is what ties them together, so it no longer changes.
             $hasVersions = $transaction->version > 1 || $transaction->versions()->count() > 1;
@@ -118,6 +122,7 @@ class SalesController extends Controller
                 'region_code' => $rc, 'type_code' => $tc,
                 'client_id' => $client->id, 'client_name' => $client->name, 'client_type' => $client->type,
                 'region' => $data['region'], 'service_type' => $data['serviceType'],
+                'currency' => $cur, 'fx_rate' => $rate,
                 'quotation_date' => Carbon::parse($data['date'])->toDateString(),
                 'due_date' => $data['dueDate'] ?? null,
                 'site' => $data['site'] ?? null,
@@ -156,6 +161,8 @@ class SalesController extends Controller
             $vat = $src->vat_pct;
 
             $paid = $src->paid();
+            // Money already taken moves to the new version, so it stays in the same currency.
+            [$cur, $rate] = $this->currency($data, $paid > 0 ? $src : null);
             $total = $this->itemsSubtotal($items) * (1 + $vat / 100);
             if ($paid > $total + self::CENT) {
                 throw ValidationException::withMessages(['lines' => 'The new total ($'.number_format($total, 2).') is less than the $'.number_format($paid, 2).' already paid on this offer.']);
@@ -167,6 +174,7 @@ class SalesController extends Controller
                 'client_id' => $client->id, 'client_name' => $client->name, 'client_type' => $client->type,
                 'region' => $data['region'], 'service_type' => $data['serviceType'], 'status' => 'Quotation',
                 'vat_pct' => $vat,
+                'currency' => $cur, 'fx_rate' => $rate,
                 'quotation_date' => Carbon::parse($data['date'])->toDateString(),
                 'due_date' => $data['dueDate'] ?? null,
                 'site' => $data['site'] ?? null,
@@ -429,6 +437,28 @@ class SalesController extends Controller
         return $out;
     }
 
+    /**
+     * The currency an offer is written in and its rate per $1. Dollars are always 1;
+     * any other code must be in the currency list. A deal that already holds money
+     * keeps its currency, since those payments were taken in it.
+     */
+    private function currency(array $data, ?Transaction $locked = null): array
+    {
+        $code = strtoupper($data['currency'] ?? 'USD');
+        if ($locked && $code !== ($locked->currency ?: 'USD')) {
+            throw ValidationException::withMessages(['currency' => 'This deal already has payments in '.($locked->currency ?: 'USD').', so it stays in that currency.']);
+        }
+        if ($code === 'USD') {
+            return ['USD', 1];
+        }
+        $currency = Currency::where('code', $code)->first();
+        if (! $currency || (! $currency->active && $code !== $locked?->currency)) {
+            throw ValidationException::withMessages(['currency' => $code.' is not in the currency list.']);
+        }
+
+        return [$code, round((float) ($data['fxRate'] ?? $currency->rate), 6)];
+    }
+
     private function offerRules(): array
     {
         return [
@@ -456,6 +486,8 @@ class SalesController extends Controller
             // A row at 0 prints as an option the client could add; at least one row needs a quantity.
             'lines.*.qty' => 'required|integer|min:0',
             'setId' => 'nullable|integer|exists:offer_sets,id',
+            'currency' => 'nullable|string|size:3',
+            'fxRate' => 'nullable|numeric|gt:0',
             'lines.*.unitPrice' => 'required|numeric|min:0',
             'lines.*.standardPrice' => 'nullable|numeric|min:0',
         ];

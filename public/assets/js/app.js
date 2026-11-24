@@ -15,7 +15,7 @@ var DEFAULTS = {
 var state = {
   view:"today", tab:{inventory:"stock", money:"pl"},
   filters:{sales:"open", contacts:"all", ledger:"all"},
-  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[], services:[], sets:[], tiers:[],
+  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[], services:[], sets:[], tiers:[], currencies:[],
   employees:[], payroll:[], suppliers:[], orders:[], users:[], user:null,
   settings:Object.assign({}, DEFAULTS),
   offer:{lines:[]}, ready:false, q:""
@@ -28,11 +28,27 @@ function $(id){ return document.getElementById(id); }
 function el(tag, cls, html){ var n=document.createElement(tag); if(cls) n.className=cls; if(html!=null) n.innerHTML=html; return n; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function num(v){ var n=Number(v); return isFinite(n)?n:0; }
-function money(v, dp){
-  var n=num(v); var d=dp==null?2:dp;
-  return (n<0?"−$":"$") + Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:d, maximumFractionDigits:d});
+/* The books are in US dollars. A deal written in another currency is shown in it
+   while CUR names that currency (see withCur); totals across deals are converted back. */
+var CUR=null;
+function curSym(code){
+  if(!code || code==="USD") return "$";
+  var c=(state.currencies||[]).filter(function(x){ return x.code===code; })[0];
+  return c && c.symbol ? c.symbol : code+" ";
 }
+function money(v, dp, code){
+  var n=num(v); var d=dp==null?2:dp;
+  return (n<0?"−":"") + curSym(code||CUR) + Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:d, maximumFractionDigits:d});
+}
+function usd(v, dp){ return money(v, dp, "USD"); }
+function withCur(code, fn){ var prev=CUR; CUR=code||null; try{ return fn(); } finally{ CUR=prev; } }
 function money0(v){ return money(v,0); }
+function txCur(tx){ return (tx && tx.currency) || "USD"; }
+function txRate(tx){ return (tx && num(tx.fxRate)) || 1; }
+function inCur(tx, v, dp){ return money(v, dp, txCur(tx)); }
+/* A deal's figure in dollars, at the rate it was written at. */
+function toBase(tx, v){ return num(v)/txRate(tx); }
+function baseOf(fn){ return function(tx){ return toBase(tx, fn(tx)); }; }
 function pct(v, dp){ return (num(v)*100).toFixed(dp==null?1:dp) + "%"; }
 function todayISO(){ var d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10); }
 function parseISO(s){ if(!s) return null; var p=String(s).slice(0,10).split("-"); if(p.length!==3) return null; var d=new Date(Number(p[0]),Number(p[1])-1,Number(p[2])); return isNaN(d)?null:d; }
@@ -178,7 +194,9 @@ function txCOGS(tx){
     return num(li.qty) * unit;
   });
 }
-function txMargin(tx){ return txSubtotal(tx) - txCOGS(tx); }
+function txSubtotalBase(tx){ return toBase(tx, txSubtotal(tx)); }
+/* Cost of goods is in dollars, so the margin is too. */
+function txMargin(tx){ return txSubtotalBase(tx) - txCOGS(tx); }
 function txHasCost(tx){ return txCOGS(tx) > 0; }
 function payState(tx){
   var paid=txPaid(tx), bal=txBalance(tx);
@@ -277,9 +295,9 @@ function clientStats(c){
   var rows=txForClient(c.id);
   return {
     deals: rows.length,
-    billed: sum(rows, txTotal),
-    paid: sum(rows, txPaid),
-    outstanding: sum(rows, function(t){ return Math.max(0, txBalance(t)); }),
+    billed: sum(rows, baseOf(txTotal)),
+    paid: sum(rows, baseOf(txPaid)),
+    outstanding: sum(rows, function(t){ return Math.max(0, toBase(t, txBalance(t))); }),
     last: rows.length ? sortBy(rows, function(t){ return txRecognisedDate(t)||""; }, true)[0] : null
   };
 }
@@ -301,8 +319,9 @@ function ledgerRows(){
   /* Cancelled deals included: money received stays received until it is refunded. */
   state.transactions.forEach(function(t){
     normalizedPayments(t).forEach(function(p){
-      var a=num(p.amount);
-      rows.push({date:p.date, dir:a<0?"out":"in", label:(p.type||"Payment")+" — "+(t.clientName||""), ref:t.refNo, method:p.method||"", amount:Math.abs(a)});
+      var a=num(p.amount), base=toBase(t,a);
+      rows.push({date:p.date, dir:a<0?"out":"in", label:(p.type||"Payment")+" — "+(t.clientName||""), ref:t.refNo, method:p.method||"", amount:Math.abs(base),
+        orig: txCur(t)!=="USD" ? inCur(t, Math.abs(a)) : ""});
     });
   });
   state.expenses.forEach(function(e){
@@ -326,13 +345,13 @@ function payrollMonthKey(p){
 function collectedInMonth(key){
   var total=0;
   state.transactions.forEach(function(t){
-    normalizedPayments(t).forEach(function(p){ if(monthKey(p.date)===key) total+=num(p.amount); });
+    normalizedPayments(t).forEach(function(p){ if(monthKey(p.date)===key) total+=toBase(t, p.amount); });
   });
   return total;
 }
 function plForMonth(key){
   var billed = state.transactions.filter(function(t){ return isLive(t) && isBilled(t) && monthKey(txRecognisedDate(t))===key; });
-  var sales = sum(billed, txTotal);
+  var sales = sum(billed, baseOf(txTotal));
   var cogs = sum(billed, txCOGS);
   var exp = sum(operatingExpenses(state.expenses).filter(function(e){ return monthKey(e.date)===key; }), function(e){ return e.amount; });
   var pay = sum(state.payroll.filter(function(p){ return payrollMonthKey(p)===key; }), function(p){ return p.amount; });
@@ -340,7 +359,7 @@ function plForMonth(key){
            net:sales-cogs-exp-pay, collected:collectedInMonth(key), deals:billed.length };
 }
 function outstandingTotal(){
-  return sum(state.transactions.filter(isLive), function(t){ return Math.max(0, txBalance(t)); });
+  return sum(state.transactions.filter(isLive), function(t){ return Math.max(0, toBase(t, txBalance(t))); });
 }
 
 /* ============================================================
@@ -376,7 +395,7 @@ function api(method, path, body){
 function reload(){
   if(loading) return loading;
   loading = api("GET", "bootstrap").then(function(d){
-    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash","services","sets","tiers"].forEach(function(k){
+    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash","services","sets","tiers","currencies"].forEach(function(k){
       state[k] = d[k] || [];
     });
     state.user = d.user;
@@ -718,8 +737,8 @@ function buildQueue(){
   state.transactions.filter(function(t){ return isLive(t) && isBilled(t) && txBalance(t) > 0.004; }).forEach(function(t){
     var age = txAge(t);
     if(age!=null && age > num(s.overdueDays)){
-      items.push({sev:"bad", area:"sales", title:t.clientName+" owes "+money(txBalance(t)),
-        detail:"Invoice "+invoiceRef(t.refNo)+" · "+age+" days old", value:money(txBalance(t)),
+      items.push({sev:"bad", area:"sales", title:t.clientName+" owes "+inCur(t,txBalance(t)),
+        detail:"Invoice "+invoiceRef(t.refNo)+" · "+age+" days old", value:inCur(t,txBalance(t)),
         go:function(){ setView("sales"); openTx(t.id); }});
     }
   });
@@ -729,7 +748,7 @@ function buildQueue(){
       var late=daysSince(m.dueDate);
       if(late==null || late<=0) return;
       items.push({sev:"bad", area:"sales", title:t.clientName+" — "+m.label+" is overdue",
-        detail:t.refNo+" · due "+fmtDate(m.dueDate)+" · "+late+" day"+(late>1?"s":"")+" late", value:money(m.amount),
+        detail:t.refNo+" · due "+fmtDate(m.dueDate)+" · "+late+" day"+(late>1?"s":"")+" late", value:inCur(t,m.amount),
         go:function(){ setView("sales"); openTx(t.id); }});
     });
   });
@@ -742,7 +761,7 @@ function buildQueue(){
     var age = daysSince(t.agreementDate);
     if(age!=null && age > num(s.overdueDays)){
       items.push({sev:"warn", area:"sales", title:t.clientName+" — agreement not yet invoiced",
-        detail:"Signed "+age+" days ago · "+money(txBalance(t))+" outstanding", value:money(txBalance(t)),
+        detail:"Signed "+age+" days ago · "+inCur(t,txBalance(t))+" outstanding", value:inCur(t,txBalance(t)),
         go:function(){ setView("sales"); openTx(t.id); }});
     }
   });
@@ -750,7 +769,7 @@ function buildQueue(){
     var age = daysSince(txDocDate(t));
     if(age!=null && age > num(s.staleDays)){
       items.push({sev:"warn", area:"sales", title:"Quotation for "+t.clientName+" has gone quiet",
-        detail:t.refNo+" · sent "+age+" days ago", value:money(txTotal(t)),
+        detail:t.refNo+" · sent "+age+" days ago", value:inCur(t,txTotal(t)),
         go:function(){ setView("sales"); openTx(t.id); }});
     }
   });
@@ -804,7 +823,7 @@ function renderToday(){
     figure("Net this month", money0(pl.net)) :
     figure("Collected in "+monthShort(mk), money0(pl.collected)) +
     figure("Outstanding from clients", money0(outstandingTotal())) +
-    figure("In the pipeline", money0(sum(live.filter(function(t){ return (t.status==="Quotation" || t.status==="Agreement") && !isSuperseded(t); }), txTotal))) +
+    figure("In the pipeline", money0(sum(live.filter(function(t){ return (t.status==="Quotation" || t.status==="Agreement") && !isSuperseded(t); }), baseOf(txTotal)))) +
     figure("Invoiced in "+monthShort(mk), money0(pl.sales));
 
   var q=buildQueue();
@@ -837,7 +856,7 @@ function renderToday(){
   var acts=[];
   state.transactions.slice(0,10).forEach(function(t){
     acts.push({date:txRecognisedDate(t)||txDocDate(t), html:'<td>'+dealStage(t)+'</td><td>'+esc(t.clientName||"")+
-      '<div class="tiny faint mono">'+esc(t.refNo)+'</div></td><td class="num">'+money(txTotal(t))+'</td>', go:function(){ setView("sales"); openTx(t.id); }});
+      '<div class="tiny faint mono">'+esc(t.refNo)+'</div></td><td class="num">'+inCur(t,txTotal(t))+'</td>', go:function(){ setView("sales"); openTx(t.id); }});
   });
   state.expenses.slice(0,6).forEach(function(e){
     acts.push({date:e.date, html:'<td><span class="pill neutral">Expense</span></td><td>'+esc(e.description||e.category||"")+
@@ -876,11 +895,11 @@ function renderSales(){
   var mk=thisMonth();
   var billedThis=live.filter(function(t){ return isBilled(t) && monthKey(txRecognisedDate(t))===mk; });
   var withCost=live.filter(txHasCost);
-  var marginPct = sum(withCost,txSubtotal)>0 ? sum(withCost,txMargin)/sum(withCost,txSubtotal) : 0;
+  var marginPct = sum(withCost,txSubtotalBase)>0 ? sum(withCost,txMargin)/sum(withCost,txSubtotalBase) : 0;
 
   $("sales-figs").innerHTML =
-    figure("In the pipeline", money0(sum(pipeline,txTotal))) +
-    figure("Invoiced in "+monthShort(mk), money0(sum(billedThis,txTotal))) +
+    figure("In the pipeline", money0(sum(pipeline,baseOf(txTotal)))) +
+    figure("Invoiced in "+monthShort(mk), money0(sum(billedThis,baseOf(txTotal)))) +
     figure("Outstanding", money0(outstandingTotal())) +
     (costsVisible() ? figure("Average margin", withCost.length ? pct(marginPct,0) : "—") : figure("Deals this month", String(live.filter(function(t){ return monthKey(txDocDate(t))===mk; }).length)));
 
@@ -890,14 +909,14 @@ function renderSales(){
     (state.filters.sales==="fromsales" ? " written by the sales team (staff accounts)" : "");
   $("sales-body").innerHTML = rows.length ? rows.map(function(t){
     var bal=txBalance(t), age=txAge(t), overdue = bal>0.004 && isBilled(t) && age!=null && age>num(state.settings.overdueDays);
-    var m = txHasCost(t) ? pct(txMargin(t)/(txSubtotal(t)||1),0) : '<span class="faint">—</span>';
+    var m = txHasCost(t) ? pct(txMargin(t)/(txSubtotalBase(t)||1),0) : '<span class="faint">—</span>';
     return '<tr class="clickable" data-tx="'+t.id+'">'+
       '<td class="mono">'+esc(t.refNo)+(versionLabel(t) || isSuperseded(t) ? ' <span class="pill '+(isSuperseded(t)?"neutral":"info")+'">'+(versionLabel(t)||"V1")+'</span>' : '')+
         '<div class="tiny faint">'+fmtDate(txDocDate(t))+(isSuperseded(t) ? ' · superseded' : '')+'</div></td>'+
       '<td class="strong">'+esc(t.clientName||"—")+'<div class="tiny faint">'+esc(t.region||"")+' · '+esc(t.clientType||"")+
         (t.soldBy ? ' · '+esc(t.soldBy) : '')+'</div>'+(t.site ? '<div class="tiny muted">'+esc(t.site)+'</div>' : '')+'</td>'+
       '<td>'+dealStage(t)+'</td>'+
-      '<td class="num">'+money(txTotal(t))+'</td>'+
+      '<td class="num">'+inCur(t,txTotal(t))+'</td>'+
       '<td class="num">'+balanceCell(t)+'</td>'+
       '<td>'+(isLive(t) && bal>0.004 && age!=null ? '<span class="pill '+(overdue?"bad":"neutral")+'">'+age+'d</span>' : '<span class="faint tiny">—</span>')+'</td>'+
       '<td class="num c-cost">'+m+'</td>'+
@@ -908,7 +927,8 @@ function renderSales(){
   });
 }
 
-function balanceCell(t){
+function balanceCell(t){ return withCur(txCur(t), function(){ return balanceCellIn(t); }); }
+function balanceCellIn(t){
   var due=refundDue(t), bal=txBalance(t);
   if(due>0.004) return '<span class="pill warn">refund '+money(due)+'</span>';
   if(!isLive(t)) return '<span class="faint">—</span>';
@@ -917,6 +937,10 @@ function balanceCell(t){
 
 /* ---------- Transaction drawer ---------- */
 function openTx(id){
+  var tx=byId(state.transactions, id);
+  return withCur(txCur(tx), function(){ return openTxIn(id); });
+}
+function openTxIn(id){
   var t=byId(state.transactions,id); if(!t) return;
   var pays=normalizedPayments(t);
   var live=isLive(t), due=refundDue(t), owed=live ? Math.max(0, txBalance(t)) : 0;
@@ -925,12 +949,12 @@ function openTx(id){
   var next={Quotation:["Agreement","Cancelled"], Agreement:["Invoiced","Cancelled"], Invoiced:["Delivered","Cancelled"], Delivered:[], Cancelled:[]}[t.status]||[];
   var lines=(t.lineItems||[]).map(function(li){
     var unitCost = li.costSnapshot!=null ? num(li.costSnapshot) : lineCost(li);
-    var lineMargin = num(li.qty)*(num(li.unitPrice)-unitCost);
+    var lineMargin = num(li.qty)*(toBase(t,li.unitPrice)-unitCost);
     var left=lineLeft(li);
     return '<tr><td>'+esc(li.name)+(li.kind==="service" ? '<div class="tiny faint">labour · no stock</div>' : '')+'</td><td class="num">'+num(li.qty)+(li.unit ? ' <span class="tiny faint">'+esc(li.unit)+'</span>' : '')+'</td>'+
       (showDelivered ? '<td class="num">'+(li.kind==="service" ? '<span class="faint">—</span>' : (left>0 ? '<span style="color:var(--warn)">'+num(li.deliveredQty)+'</span>' : num(li.deliveredQty)))+'</td>' : '')+
       '<td class="num">'+money(li.unitPrice)+'</td>'+
-      '<td class="num c-cost">'+(unitCost>0 ? money(lineMargin) : '<span class="faint">—</span>')+'</td>'+
+      '<td class="num c-cost">'+(unitCost>0 ? usd(lineMargin) : '<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+money(num(li.qty)*num(li.unitPrice))+'</td></tr>';
   }).join("");
 
@@ -953,7 +977,7 @@ function openTx(id){
       '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(txSubtotal(t))+'</span></div>'+
       (num(t.vatPct)>0 ? '<div class="r"><span class="l">VAT '+num(t.vatPct)+'%</span><span class="mono">'+money(txVat(t))+'</span></div>' : '')+
       '<div class="r"><span class="l">Paid</span><span class="mono">'+money(txPaid(t))+'</span></div>'+
-      (txHasCost(t) ? '<div class="r c-cost"><span class="l">Margin</span><span class="mono">'+money(txMargin(t))+' · '+pct(txMargin(t)/(txSubtotal(t)||1),0)+'</span></div>' : '')+
+      (txHasCost(t) ? '<div class="r c-cost"><span class="l">Margin</span><span class="mono">'+usd(txMargin(t))+' · '+pct(txMargin(t)/(txSubtotalBase(t)||1),0)+'</span></div>' : '')+
       (due>0.004 ? '<div class="r grand"><span class="l">Refund due to client</span><span class="v">'+money(due)+'</span></div>'
         : (live ? '<div class="r grand"><span class="l">Balance</span><span class="v">'+money(Math.max(0,txBalance(t)))+'</span></div>' : ''))+
     '</div>'+
@@ -1012,12 +1036,12 @@ function openTx(id){
     var amt=valNum("tx-amt");
     if(amt<=0){ toast("Enter an amount first", true); return; }
     if(due>0.004){
-      if(amt>due+0.004){ toast("Only "+money(due)+" is owed back to the client", true); return; }
+      if(amt>due+0.004){ toast("Only "+inCur(t,due)+" is owed back to the client", true); return; }
       send("POST", "transactions/"+t.id+"/refunds", {amount:amt, method:val("tx-meth"), date:todayISO()},
         function(){ closeDrawer(); }, "Refund recorded");
       return;
     }
-    if(amt>owed+0.004){ toast("That is more than the "+money(owed)+" still owed", true); return; }
+    if(amt>owed+0.004){ toast("That is more than the "+inCur(t,owed)+" still owed", true); return; }
     send("POST", "transactions/"+t.id+"/payments", {amount:amt, method:val("tx-meth"), date:todayISO()},
       function(){ closeDrawer(); }, "Payment recorded");
   });
@@ -1037,13 +1061,13 @@ function openTx(id){
       var m=byId(t.milestones||[], b.dataset.ms); if(!m) return;
       /* The method chosen in the payment box below applies to the stage too. */
       send("POST", "transactions/"+t.id+"/milestones/"+m.id+"/pay", {method:$("tx-meth") ? val("tx-meth") : "Bank Transfer", date:todayISO()},
-        function(){ openTx(t.id); }, money(m.amount)+" recorded for "+m.label);
+        function(){ openTx(t.id); }, inCur(t,m.amount)+" recorded for "+m.label);
     });
   });
 }
 function advance(t, next){
   if(next==="Cancelled" && !window.confirm("Cancel "+t.refNo+"? The deal stays on record as cancelled."+
-    (txPaid(t)>0.004 ? "\n\nThe client has paid "+money(txPaid(t))+". It stays in the cash ledger until you record the refund from this deal." : ""))) return;
+    (txPaid(t)>0.004 ? "\n\nThe client has paid "+inCur(t,txPaid(t))+". It stays in the cash ledger until you record the refund from this deal." : ""))) return;
   if(next==="Delivered"){
     /* Hands over what is on the shelf; anything short waits on the To deliver list. */
     send("POST", "transactions/"+t.id+"/deliver", {}, function(res){
@@ -1085,7 +1109,9 @@ function openComposer(tx, mode){
     reviseOf: mode==="revise" ? {id:src.id, root:rootRefOf(src), version:nextVersion} : null,
     paidStages: src ? (src.milestones||[]).filter(function(m){ return m.paid; }) : [],
     milestones: src ? (src.milestones||[]).filter(function(m){ return !m.paid; }).map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||""}; }) : [],
+    currency: src ? txCur(src) : "USD", fxRate: src ? txRate(src) : 1,
     lines: src ? linesFrom(src) : [blankLine()]};
+  fillCurrencySelect();
   $("of-title").textContent = mode==="edit" ? "Edit quotation "+src.refNo
     : (mode==="revise" ? "Revise "+src.refNo+" for the client — saves as "+state.offer.reviseOf.root+"-V"+nextVersion : "New price offer");
   $("of-save").textContent = mode==="edit" ? "Save changes" : (mode==="revise" ? "Save as V"+nextVersion : "Save quotation");
@@ -1141,7 +1167,7 @@ function saveDraft(){
     if(!offerHasContent()){ window.localStorage.removeItem(draftKey()); return; }
     window.localStorage.setItem(draftKey(), JSON.stringify({savedAt:new Date().toISOString(),
       offer:{mode:state.offer.mode, reviseOf:state.offer.reviseOf, setId:state.offer.setId||"", lines:state.offer.lines, milestones:state.offer.milestones||[],
-        paidStages:state.offer.paidStages||[], ref:state.offer.ref||""},
+        paidStages:state.offer.paidStages||[], ref:state.offer.ref||"", currency:state.offer.currency||"USD", fxRate:state.offer.fxRate||1},
       fields:{client:val("of-client"), region:val("of-region"), date:val("of-date"), site:val("of-site"), seller:val("of-seller"),
         paid:val("of-paid"), method:val("of-method"), due:val("of-due"), notes:val("of-notes"), type:radioVal("oftype"), service:radioVal("ofservice")}}));
   }catch(e){}
@@ -1158,7 +1184,9 @@ function restoreDraft(d){
   var rv=o.reviseOf && byId(state.transactions, o.reviseOf.id);
   var asRevision = !!(rv && rv.status==="Quotation");
   state.offer={mode: asRevision ? "revise" : "new", editId:null, reviseOf: asRevision ? o.reviseOf : null, setId:o.setId||"", ref:o.ref||"",
-    lines:o.lines||[blankLine()], milestones:o.milestones||[], paidStages: asRevision ? (o.paidStages||[]) : []};
+    lines:o.lines||[blankLine()], milestones:o.milestones||[], paidStages: asRevision ? (o.paidStages||[]) : [],
+    currency:o.currency||"USD", fxRate:num(o.fxRate)||1};
+  fillCurrencySelect();
   $("of-client").value=f.client||""; $("of-region").value=f.region||"West Bank"; $("of-date").value=f.date||todayISO();
   $("of-site").value=f.site||""; $("of-seller").value=f.seller||""; $("of-paid").value=f.paid||0; $("of-method").value=f.method||"Cash";
   $("of-due").value=f.due||""; $("of-notes").value=f.notes||"";
@@ -1278,7 +1306,8 @@ function offerCtx(){
     client:c, region:$("of-region").value, date:$("of-date").value||todayISO(),
     type: typeEl?typeEl.value:"Direct", service: svcEl?svcEl.value:"With Programming",
     clientType: c?c.type:"End User", discount: c?num(c.discountPct):0,
-    tier: c?tierById(c.tierId):null
+    tier: c?tierById(c.tierId):null,
+    currency: (state.offer && state.offer.currency) || "USD", rate: (state.offer && num(state.offer.fxRate)) || 1
   };
   /* A tier decides the price column; its discount stacks with the contact's own extra discount. */
   if(ctx.tier){
@@ -1287,7 +1316,52 @@ function offerCtx(){
   }
   return ctx;
 }
-function renderComposer(){
+/* ---------- Quoting in another currency ---------- */
+function currencyByCode(code){ return (state.currencies||[]).filter(function(c){ return c.code===code; })[0] || null; }
+function offerLockedCurrency(){
+  /* Money already taken on this deal was taken in its currency, so the currency stays. */
+  var o=state.offer||{}, id=o.editId || (o.reviseOf && o.reviseOf.id);
+  var t=id ? byId(state.transactions, id) : null;
+  return t && txPaid(t)>0.004 ? txCur(t) : null;
+}
+function fillCurrencySelect(){
+  var cur=state.offer.currency||"USD", locked=offerLockedCurrency();
+  var list=(state.currencies||[]).filter(function(c){ return c.active || c.code===cur; });
+  $("of-cur").innerHTML='<option value="USD">USD · $</option>'+list.map(function(c){
+    return '<option value="'+esc(c.code)+'">'+esc(c.code)+(c.symbol?' · '+esc(c.symbol):'')+'</option>'; }).join("");
+  $("of-cur").value=cur; $("of-cur").disabled=!!locked;
+  var other=cur!=="USD";
+  $("of-rate").hidden=!other; $("of-rate").value=other ? num(state.offer.fxRate) : 1;
+  $("of-rate-note").hidden=!other && !locked;
+  $("of-rate-note").textContent = locked ? "Payments were taken in "+locked+", so it stays in "+locked+"."
+    : (other ? num(state.offer.fxRate)+" "+cur+" = $1 on this offer" : "");
+}
+/* Prices already typed in follow the new currency or rate, so nothing changes in real terms. */
+function setOfferCurrency(code, rate){
+  var o=state.offer, ratio=rate/(num(o.fxRate)||1);
+  if(Math.abs(ratio-1)>1e-9){
+    o.lines.forEach(function(l){ if(l.touched) l.unitPrice=Math.round(num(l.unitPrice)*ratio*100)/100; });
+    (o.milestones||[]).forEach(function(m){ m.amount=Math.round(num(m.amount)*ratio*100)/100; });
+  }
+  o.currency=code; o.fxRate=rate;
+  fillCurrencySelect(); renderComposer(); renderMilestones(); scheduleDraftSave();
+}
+$("of-cur").addEventListener("change", function(){
+  var code=$("of-cur").value, c=currencyByCode(code);
+  setOfferCurrency(code, code==="USD" ? 1 : (c ? num(c.rate) : 1));
+});
+$("of-rate").addEventListener("change", function(){
+  var r=num($("of-rate").value);
+  if(r<=0){ toast("The rate must be more than zero", true); fillCurrencySelect(); return; }
+  setOfferCurrency(state.offer.currency, r);
+});
+/* What the price book says for a line, in the offer's currency. */
+function offerStandard(l, ctx){
+  var std=lineStandard(l, ctx);
+  return (l.kind==="service" && !l.serviceId) ? std : std*ctx.rate;
+}
+function renderComposer(){ return withCur(state.offer.currency, renderComposerIn); }
+function renderComposerIn(){
   var ctx=offerCtx();
   var sel=$("of-client"), keep=sel.value;
   sel.innerHTML='<option value="">Choose a client</option>'+state.clients.map(function(c){
@@ -1307,11 +1381,13 @@ function renderComposer(){
 
   $("of-lines").innerHTML = state.offer.lines.map(function(ln,i){
     /* The client's standing discount applies to the price book, not to labour rates. */
-    var std=lineStandard(ln,ctx), suggested = ln.kind==="service" ? std : std*(1-ctx.discount);
+    var std=offerStandard(ln,ctx), suggested = ln.kind==="service" ? std : std*(1-ctx.discount);
     if(!ln.touched) ln.unitPrice=Math.round(suggested*100)/100;
     var cost=lineCost(ln), lineTotal=num(ln.qty)*num(ln.unitPrice);
     var off=num(ln.unitPrice)-suggested;
-    var marginTxt = costsVisible() ? (cost>0 ? pct((num(ln.unitPrice)-cost)/(num(ln.unitPrice)||1),0) : "—") : "";
+    var unitBase=num(ln.unitPrice)/ctx.rate;
+    var marginTxt = costsVisible() ? (cost>0 ? pct((unitBase-cost)/(unitBase||1),0) : "—") : "";
+    var flagged = Math.abs(off)/ctx.rate > num(state.settings.varianceFlag);
     var itemVal = ln.kind==="service" ? (ln.serviceId ? "s:"+ln.serviceId : "s:custom")
       : (ln.kind==="combo" ? (ln.baseId?"b:"+ln.baseId:"") : (ln.productId?"p:"+ln.productId:""));
     var activeServices=(state.services||[]).filter(function(sv){ return sv.active!==false; });
@@ -1345,8 +1421,8 @@ function renderComposer(){
       '<div><div class="lbl">Book price</div><div class="fixed">'+money(suggested)+'</div></div>'+
       '<div><div class="lbl">You charge</div><input data-f="price" type="number" step="0.01" value="'+num(ln.unitPrice).toFixed(2)+'"></div>'+
       '<div><div class="lbl">'+(costsVisible() ? "Line · margin" : "Line")+'</div><div class="fixed">'+money(lineTotal)+
-        '<div class="tiny '+(Math.abs(off)>num(state.settings.varianceFlag)?"":"faint")+'" style="'+(Math.abs(off)>num(state.settings.varianceFlag)?"color:var(--warn)":"")+'">'+
-          marginTxt+(Math.abs(off)>num(state.settings.varianceFlag) ? (marginTxt?" · ":"")+(off>0?"+":"")+money0(off)+" off book" : "")+'</div></div></div>'+
+        '<div class="tiny '+(flagged?"":"faint")+'" style="'+(flagged?"color:var(--warn)":"")+'">'+
+          marginTxt+(flagged ? (marginTxt?" · ":"")+(off>0?"+":"")+money0(off)+" off book" : "")+'</div></div></div>'+
       '<div><div class="lbl">&nbsp;</div><button class="btn quiet sm" data-f="remove" type="button" aria-label="Remove line">×</button></div>'+
     '</div>';
   }).join("") || '<p class="tiny muted">No items yet — add the first line.</p>';
@@ -1370,7 +1446,7 @@ function renderComposer(){
             L.kind="service"; L.productId=""; L.baseId=""; L.coverId="";
             var sv = v==="s:custom" ? null : serviceById(v.slice(2));
             L.serviceId = sv ? sv.id : ""; L.name = sv ? sv.name : ""; L.unit = sv ? sv.unit : "";
-            L.unitPrice = sv ? num(sv.rate) : 0; L.touched=true;
+            L.unitPrice = sv ? Math.round(num(sv.rate)*(num(state.offer.fxRate)||1)*100)/100 : 0; L.touched=true;
           }
           else { L.kind="product"; L.productId=""; L.baseId=""; L.coverId=""; }
         } else if(f==="cover"){ L.coverId=inp.value; L.touched=false; }
@@ -1389,7 +1465,7 @@ function renderComposer(){
   $("of-totals").innerHTML =
     '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(subtotal)+'</span></div>'+
     (ctx.discount>0 ? '<div class="r"><span class="l">'+(ctx.tier?esc(ctx.tier.name)+' discount applied':'Client discount applied')+'</span><span class="mono">'+pct(ctx.discount)+'</span></div>' : '')+
-    (cogs>0 ? '<div class="r c-cost"><span class="l">Margin on this offer</span><span class="mono">'+money(subtotal-cogs)+' · '+pct((subtotal-cogs)/(subtotal||1),0)+'</span></div>' : '')+
+    (cogs>0 ? '<div class="r c-cost"><span class="l">Margin on this offer</span><span class="mono">'+usd(subtotal/ctx.rate-cogs)+' · '+pct((subtotal/ctx.rate-cogs)/((subtotal/ctx.rate)||1),0)+'</span></div>' : '')+
     (vat>0 ? '<div class="r"><span class="l">VAT '+num(state.settings.vatPct)+'%</span><span class="mono">'+money(vat)+'</span></div>' : '')+
     '<div class="r grand"><span class="l">Total</span><span class="v">'+money(subtotal+vat)+'</span></div>'+
     (state.offer.editId ? '' : '<div class="r"><span class="l">Balance after payment now</span><span class="mono">'+money(subtotal+vat-paid)+'</span></div>');
@@ -1400,7 +1476,8 @@ function offerTotal(){
   var done=state.offer.lines.filter(lineReady);
   return sum(done,function(l){ return num(l.qty)*num(l.unitPrice); })*(1+num(state.settings.vatPct)/100);
 }
-function renderMilestones(){
+function renderMilestones(){ return withCur(state.offer.currency, renderMilestonesIn); }
+function renderMilestonesIn(){
   var box=$("of-milestones"); if(!box) return;
   var ms=state.offer.milestones||[], locked=state.offer.paidStages||[];
   var lockedHtml = locked.map(function(m){
@@ -1441,7 +1518,8 @@ function renderMilestones(){
   });
 }
 /* Update the "scheduled of total" line without redrawing the inputs being typed in. */
-function refreshMilestoneSum(){
+function refreshMilestoneSum(){ return withCur(state.offer.currency, refreshMilestoneSumIn); }
+function refreshMilestoneSumIn(){
   var el=$("of-ms-sum"); if(!el) return;
   var total=offerTotal(), scheduled=sum(state.offer.paidStages||[],function(m){ return m.amount; })+sum(state.offer.milestones||[],function(m){ return m.amount; });
   var off=Math.abs(scheduled-total)>0.5;
@@ -1473,16 +1551,17 @@ $("of-save").addEventListener("click", function(){
   var editId=state.offer.editId, rev=state.offer.reviseOf;
   var paid=(editId || rev) ? 0 : valNum("of-paid");
   var total=sum(done,function(l){ return num(l.qty)*num(l.unitPrice); })*(1+num(state.settings.vatPct)/100);
-  if(paid>total+0.004){ toast("Paid now is more than the offer total of "+money(total), true); return; }
+  if(paid>total+0.004){ toast("Paid now is more than the offer total of "+money(total,2,ctx.currency), true); return; }
   var data={
     clientId:ctx.client.id, region:ctx.region, dealType:ctx.type, serviceType:ctx.service,
     date:ctx.date, dueDate:val("of-due") || null, notes:val("of-notes"),
     site:val("of-site"), soldBy:val("of-seller"),
     paid:paid, method:val("of-method"), setId:state.offer.setId||null,
+    currency:ctx.currency, fxRate:ctx.rate,
     milestones:(state.offer.milestones||[]).filter(function(m){ return num(m.amount)>0; })
       .map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||null}; }),
     lines:done.map(function(l){
-      var base={kind:l.kind, qty:num(l.qty), standardPrice:lineStandard(l,ctx), unitPrice:num(l.unitPrice)};
+      var base={kind:l.kind, qty:num(l.qty), standardPrice:Math.round(offerStandard(l,ctx)*100)/100, unitPrice:num(l.unitPrice)};
       if(l.kind==="service"){ base.serviceId=l.serviceId||null; base.name=(l.name||"").trim(); base.unit=l.unit||""; }
       else if(l.kind==="combo"){ base.baseId=l.baseId; base.coverId=l.coverId; } else { base.productId=l.productId; }
       return base;
@@ -1528,7 +1607,14 @@ function docBrandBar(s){
 function docFootBar(s, page, of){
   return '<div class="d-footbar"><span>'+[s.address,s.email,s.phone].filter(Boolean).map(esc).join("  |  ")+'</span><span>Page '+page+' of '+of+'</span></div>';
 }
-function openDoc(t, kind){
+/* Document wording written for dollars ("All prices in USD") follows the deal's currency. */
+function curWording(t, text){
+  var cur=txCur(t); if(cur==="USD") return text;
+  var c=currencyByCode(cur), name=c ? c.name : cur;
+  return text.replace(/\bUSD\b/g, cur).replace(/\bUS dollars\b/gi, name);
+}
+function openDoc(t, kind){ return withCur(txCur(t), function(){ return openDocIn(t, kind); }); }
+function openDocIn(t, kind){
   docState.t=t; docState.kind=kind;
   var s=state.settings;
   var refMap={"Quotation":t.refNo, "Agreement":agreementRef(t.refNo), "Invoice":invoiceRef(t.refNo),
@@ -1538,7 +1624,7 @@ function openDoc(t, kind){
   var client=clientById(t.clientId)||{};
   var showMoney = kind!=="Delivery Note";
   var terms = kind==="Quotation" ? s.termsQuotation : (kind==="Agreement" ? s.termsAgreement : s.termsInvoice);
-  terms = String(terms||"").replace("{validity}", num(s.validityDays));
+  terms = curWording(t, String(terms||"").replace("{validity}", num(s.validityDays)));
 
   var isNote = kind==="Delivery Note";
   var rows=(t.lineItems||[]).filter(function(li){ return !(isNote && li.kind==="service"); }).map(function(li){
@@ -1598,7 +1684,7 @@ function openDoc(t, kind){
   if(!brand){
     $("doc").innerHTML = docPage(sheet);
   } else {
-    var bullets=String(s.offerNotes||"").split("\n").map(function(x){ return x.trim(); }).filter(Boolean);
+    var bullets=curWording(t, String(s.offerNotes||"")).split("\n").map(function(x){ return x.trim(); }).filter(Boolean);
     var logoOrName = function(dark){ return s.logo ? '<img src="'+esc(dark ? s.logo : (whiteLogo.url||s.logo))+'" alt="'+esc(s.name||"")+'">'
       : '<div class="d-cover-word"'+(dark?' style="color:#161A16"':'')+'>'+esc(s.name||"Nestify")+'</div>'; };
     var cover =
@@ -2128,7 +2214,7 @@ function tierYearBilled(tierId){
   var ids=state.clients.filter(function(c){ return c.tierId===tierId; }).map(function(c){ return c.id; });
   return sum(state.transactions.filter(function(t){
     return ids.indexOf(t.clientId)>=0 && isLive(t) && isBilled(t) && String(txRecognisedDate(t)||"").slice(0,4)===yr;
-  }), txTotal);
+  }), baseOf(txTotal));
 }
 function renderTiers(){
   var rows=state.tiers||[];
@@ -2218,8 +2304,8 @@ function openContact(id){
       '<thead><tr><th>Reference</th><th>Stage</th><th>Date</th><th class="num">Total</th><th class="num">Balance</th></tr></thead><tbody>'+
       (rows.length ? rows.map(function(t){
         return '<tr class="clickable" data-t="'+t.id+'"><td class="mono">'+esc(t.refNo)+'</td><td>'+dealStage(t)+'</td>'+
-          '<td class="tiny muted">'+fmtDate(txRecognisedDate(t))+'</td><td class="num">'+money(txTotal(t))+'</td>'+
-          '<td class="num">'+(txBalance(t)>0.004?money(txBalance(t)):'<span class="faint">—</span>')+'</td></tr>';
+          '<td class="tiny muted">'+fmtDate(txRecognisedDate(t))+'</td><td class="num">'+inCur(t,txTotal(t))+'</td>'+
+          '<td class="num">'+(txBalance(t)>0.004?inCur(t,txBalance(t)):'<span class="faint">—</span>')+'</td></tr>';
       }).join("") : emptyRow(5,"No deals with this contact yet."))+
     '</tbody></table></div></div></div>'+
     '<div style="display:flex; gap:8px"><button class="btn sm" type="button" id="c-edit">Edit contact</button>'+
@@ -2416,7 +2502,7 @@ function renderLedger(){
   var f=state.filters.ledger;
   var rows=ledgerRows().filter(function(r){ return f==="all" || r.dir===f; }).slice(0,180);
   $("ledger-body").innerHTML = rows.length ? rows.map(function(r){
-    return '<tr><td>'+fmtDate(r.date)+'</td><td>'+esc(r.label)+'</td>'+
+    return '<tr><td>'+fmtDate(r.date)+'</td><td>'+esc(r.label)+(r.orig?' <span class="tiny faint">('+esc(r.orig)+')</span>':'')+'</td>'+
       '<td class="mono tiny">'+esc(r.ref||"")+'</td><td class="tiny muted">'+esc(r.method||"")+'</td>'+
       '<td class="num">'+(r.dir==="in"?money(r.amount):'')+'</td>'+
       '<td class="num">'+(r.dir==="out"?money(r.amount):'')+'</td></tr>';
@@ -2523,8 +2609,40 @@ $("s-image-file").addEventListener("change", function(){
   }).then(function(saved){ state.settings=Object.assign({}, state.settings, saved); prepareWhiteLogo(); renderBrandImages(); toast(which==="logo" ? "Logo saved" : "Cover photo saved"); })
     .catch(function(e){ toast(e.message, true); });
 });
+function renderCurrencies(){
+  var rows=state.currencies||[];
+  $("cur-body").innerHTML = rows.length ? rows.map(function(c){
+    var n=state.transactions.filter(function(t){ return txCur(t)===c.code; }).length;
+    return '<tr class="clickable" data-cur="'+c.id+'"><td class="mono strong">'+esc(c.code)+(c.active?'':' <span class="pill neutral">hidden</span>')+'</td>'+
+      '<td>'+esc(c.name)+'</td><td>'+esc(c.symbol||"—")+'</td><td class="num mono">'+num(c.rate)+'</td><td class="num">'+n+'</td></tr>';
+  }).join("") : emptyRow(5,"Only US dollars so far.");
+  $("cur-body").querySelectorAll("[data-cur]").forEach(function(r){
+    r.addEventListener("click", function(){ editCurrency(byId(state.currencies, r.dataset.cur)); });
+  });
+}
+function editCurrency(c){
+  var isNew=!c; var d=c||{code:"", name:"", symbol:"", rate:1, active:true};
+  openForm((isNew?"Add":"Edit")+" currency", [
+    {fields:[{id:"cu-code", label:"Code", value:d.code, placeholder:"ILS"},
+             {id:"cu-name", label:"Name", value:d.name, placeholder:"Israeli shekel"},
+             {id:"cu-symbol", label:"Symbol", value:d.symbol, placeholder:"₪"}]},
+    {fields:[{id:"cu-rate", label:"Units per $1 today", type:"number", step:"0.0001", min:0, value:num(d.rate)},
+             {id:"cu-active", label:"Show on new offers", type:"select", options:[{value:"1",label:"Yes"},{value:"0",label:"No"}], value:d.active?"1":"0"}]},
+    {note:"Changing the rate only affects offers written from now on. Each saved deal keeps the rate it was written at."}
+  ], function(){
+    var code=val("cu-code").toUpperCase();
+    if(!/^[A-Z]{3}$/.test(code)){ toast("The code is three letters, like ILS or JOD", true); return false; }
+    if(code==="USD"){ toast("US dollars are the base currency and are always there", true); return false; }
+    if(!val("cu-name")){ toast("Name is required", true); return false; }
+    if(valNum("cu-rate")<=0){ toast("The rate must be more than zero", true); return false; }
+    save("currencies", isNew?null:c.id, {code:code, name:val("cu-name"), symbol:val("cu-symbol"), rate:valNum("cu-rate"), active:val("cu-active")==="1"},
+      function(){ toast("Currency saved"); });
+  }, isNew ? null : function(){ remove("currencies", c.id, c.code); });
+}
+$("cur-add").addEventListener("click", function(){ editCurrency(null); });
 function renderSettings(){
   renderBrandImages();
+  if(isManager()) renderCurrencies();
   if(settingsDirty) return;
   var s=state.settings;
   var map={"s-name":s.name,"s-tagline":s.tagline,"s-phone":s.phone,"s-email":s.email,"s-website":s.website,
@@ -2617,13 +2735,13 @@ function workbookSheets(){
       "Programming fee":r2(it.programmingFee), "Cover add-on":r2(it.priceAddOn)}; });
   var sheets=[
     ["Deals", state.transactions.map(function(t){ return {"Reference":t.refNo, "Date":txDocDate(t), "Client":t.clientName, "Client type":t.clientType,
-      "Region":t.region, "Site":t.site||"", "Sold by":t.soldBy||"", "Stage":t.status, "Subtotal":r2(txSubtotal(t)), "VAT":r2(txVat(t)), "Total":r2(txTotal(t)),
-      "Paid":r2(txPaid(t)), "Balance":r2(txBalance(t)), "Cost of goods":r2(txCOGS(t)), "Margin":r2(txMargin(t)), "Invoiced on":t.invoiceDate||"", "Delivered on":t.deliveredDate||""}; })],
+      "Region":t.region, "Site":t.site||"", "Sold by":t.soldBy||"", "Stage":t.status, "Currency":txCur(t), "Rate per $1":txRate(t), "Subtotal":r2(txSubtotal(t)), "VAT":r2(txVat(t)), "Total":r2(txTotal(t)),
+      "Paid":r2(txPaid(t)), "Balance":r2(txBalance(t)), "Total ($)":r2(toBase(t,txTotal(t))), "Cost of goods ($)":r2(txCOGS(t)), "Margin ($)":r2(txMargin(t)), "Invoiced on":t.invoiceDate||"", "Delivered on":t.deliveredDate||""}; })],
     ["Deal lines", [].concat.apply([], state.transactions.map(function(t){ return (t.lineItems||[]).map(function(li){
       return {"Reference":t.refNo, "Client":t.clientName, "Stage":t.status, "Item":li.name, "Qty":num(li.qty), "Delivered":num(li.deliveredQty),
         "Unit price":r2(li.unitPrice), "Line total":r2(num(li.qty)*num(li.unitPrice)), "Unit cost":r2(li.costSnapshot)}; }); }))],
     ["Payments", [].concat.apply([], state.transactions.map(function(t){ return normalizedPayments(t).map(function(p){
-      return {"Date":p.date, "Reference":t.refNo, "Client":t.clientName, "Type":p.type, "Method":p.method, "Amount":r2(p.amount)}; }); }))],
+      return {"Date":p.date, "Reference":t.refNo, "Client":t.clientName, "Type":p.type, "Method":p.method, "Currency":txCur(t), "Amount":r2(p.amount), "Amount ($)":r2(toBase(t,p.amount))}; }); }))],
     ["Payment schedule", [].concat.apply([], state.transactions.map(function(t){ return (t.milestones||[]).map(function(m){
       return {"Reference":t.refNo, "Client":t.clientName, "Stage":m.label, "Due":m.dueDate||"", "Amount":r2(m.amount), "Paid":m.paid ? (m.paidDate||"yes") : ""}; }); }))],
     ["Contacts", state.clients.map(function(c){ var st=clientStats(c);

@@ -7,6 +7,7 @@ use App\Models\Base;
 use App\Models\Client;
 use App\Models\CompanySetting;
 use App\Models\Cover;
+use App\Models\Currency;
 use App\Models\DeletedRecord;
 use App\Models\Delivery;
 use App\Models\Employee;
@@ -56,6 +57,7 @@ class BootstrapController extends Controller
             'services' => $api(Service::orderBy('name')->get()),
             'sets' => $api(OfferSet::orderBy('name')->get()),
             'tiers' => $api(PriceTier::orderBy('name')->get()),
+            'currencies' => $api(Currency::orderBy('code')->get()),
             'deliveries' => $api(Delivery::with(['line', 'user'])->orderByDesc('delivered_on')->orderByDesc('id')->get()),
             // Money, purchasing, salaries, accounts and the bin are the owner's.
             'expenses' => $owner ? $api(Expense::orderByDesc('date')->orderByDesc('id')->get()) : [],

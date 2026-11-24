@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Base;
 use App\Models\Client;
 use App\Models\Cover;
+use App\Models\Currency;
 use App\Models\Employee;
 use App\Models\PriceTier;
 use App\Models\Product;
@@ -17,6 +18,7 @@ use App\Support\RecycleBin;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Create / update / delete for the plain records: contacts, stock items,
@@ -74,6 +76,12 @@ class RecordController extends Controller
                 'country' => ['country', 'nullable|string|max:80'],
                 'notes' => ['notes', 'nullable|string|max:5000'],
             ]],
+            'currencies' => [Currency::class, 'manager', $name + [
+                'code' => ['code', 'required|string|size:3|alpha|not_in:USD,usd'],
+                'symbol' => ['symbol', 'nullable|string|max:8'],
+                'rate' => ['rate', 'required|numeric|gt:0'],
+                'active' => ['active', 'boolean'],
+            ]],
             'price_tiers' => [PriceTier::class, 'manager', $name + [
                 'code' => ['code', 'nullable|string|max:20'],
                 'basis' => ['basis', 'required|in:End user,Dealer'],
@@ -101,6 +109,9 @@ class RecordController extends Controller
         [$class, , $fields] = $this->guard($request, $collection);
         $model = new $class;
         $this->fill($model, $request, $fields, true);
+        if ($collection === 'currencies') {
+            $this->uniqueCode($model);
+        }
         $model->save();
 
         return response()->json(['id' => (string) $model->id], 201);
@@ -111,6 +122,9 @@ class RecordController extends Controller
         [$class, , $fields] = $this->guard($request, $collection);
         $model = $class::findOrFail($id);
         $this->fill($model, $request, $fields, false);
+        if ($collection === 'currencies') {
+            $this->uniqueCode($model);
+        }
         $model->save();
 
         return response()->json(['id' => (string) $model->id]);
@@ -130,10 +144,18 @@ class RecordController extends Controller
         }
 
         $kind = ['clients' => 'client', 'products' => 'product', 'bases' => 'base', 'covers' => 'cover',
-            'suppliers' => 'supplier', 'employees' => 'employee', 'services' => 'service', 'price_tiers' => 'price_tier'][$collection];
+            'suppliers' => 'supplier', 'employees' => 'employee', 'services' => 'service', 'price_tiers' => 'price_tier', 'currencies' => 'currency'][$collection];
         DB::transaction(fn () => RecycleBin::trash($kind, $model, $model->name));
 
         return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
+    }
+
+    private function uniqueCode(Model $currency): void
+    {
+        $currency->code = strtoupper($currency->code);
+        if (Currency::where('code', $currency->code)->where('id', '!=', $currency->id ?? 0)->exists()) {
+            throw ValidationException::withMessages(['code' => $currency->code.' is already in the list.']);
+        }
     }
 
     private function guard(Request $request, string $collection): array

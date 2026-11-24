@@ -384,6 +384,16 @@
           </div>
         </div>
         <div class="section" data-need="manager">
+          <div class="section-head">
+            <div><h2>Currencies</h2><p class="sub">The books are kept in US dollars. Add the currencies you quote in and today's rate; each offer keeps the rate it was written at, and every report converts back to dollars.</p></div>
+            <button class="btn sm" type="button" id="cur-add">Add currency</button>
+          </div>
+          <div class="panel"><div class="table-wrap"><table>
+            <thead><tr><th>Code</th><th>Name</th><th>Symbol</th><th class="num">Units per $1</th><th class="num">Deals</th></tr></thead>
+            <tbody id="cur-body"></tbody>
+          </table></div></div>
+        </div>
+        <div class="section" data-need="manager">
           <div class="section-head"><div><h2>Thresholds</h2><p class="sub">When Today should start warning you.</p></div></div>
           <div class="panel panel-pad">
             <div class="grid g3">
@@ -455,10 +465,13 @@
       </div>
     </div>
     <div class="sheet-body">
-      <div class="grid g4">
+      <div class="grid g5">
         <div class="field"><label for="of-client">Client</label><select id="of-client"></select></div>
         <div class="field"><label for="of-region">Region</label><select id="of-region"><option value="West Bank">West Bank</option><option value="48 Region">48 Region</option></select></div>
         <div class="field"><label for="of-date">Date</label><input id="of-date" type="date" class="mono"></div>
+        <div class="field"><label for="of-cur">Quote in</label><div style="display:flex; gap:6px"><select id="of-cur" style="flex:1"></select>
+          <input id="of-rate" type="number" step="0.0001" min="0" class="mono" style="width:96px" title="Units per $1 on this offer" hidden></div>
+          <div class="tiny faint" id="of-rate-note" hidden></div></div>
         <div class="field"><label>Reference</label><div class="mono" id="of-ref" style="font-size:17px; padding-top:6px; letter-spacing:-0.02em">—</div></div>
       </div>
       <div class="grid g2">
