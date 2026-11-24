@@ -1306,6 +1306,54 @@ function addDays(iso, n){
 $("doc-close").addEventListener("click", function(){ $("doc-overlay").hidden=true; });
 $("doc-print").addEventListener("click", function(){ window.print(); });
 
+/* ---------- Download PDF: the document drawn at A4 width and saved as a file ----------
+   html2canvas + jsPDF (both MIT) ship with the app, so this works offline too. */
+var pdfLibs=null;
+function loadVendor(file){
+  return new Promise(function(ok, fail){
+    var sc=document.createElement("script");
+    sc.src=BASE+"/assets/vendor/"+file;
+    sc.onload=function(){ ok(); }; sc.onerror=function(){ fail(new Error("Could not load the PDF tool")); };
+    document.head.appendChild(sc);
+  });
+}
+function ensurePdfLibs(){
+  if(window.html2canvas && window.jspdf) return Promise.resolve();
+  if(!pdfLibs) pdfLibs=loadVendor("html2canvas.min.js").then(function(){ return loadVendor("jspdf.umd.min.js"); })
+    .catch(function(e){ pdfLibs=null; throw e; });
+  return pdfLibs;
+}
+function docToPdf(){
+  /* Drawn off-screen at A4 width (794px) so the PDF never picks up the panel's
+     scrollbar or cropped height; a long document runs onto further pages. */
+  var stage=document.createElement("div");
+  stage.id="doc"; stage.style.cssText="position:fixed; left:-12000px; top:0; width:794px; background:#FFFFFF";
+  stage.innerHTML=$("doc").innerHTML;
+  $("doc").id="doc-live";
+  document.body.appendChild(stage);
+  var cleanup=function(){ if(stage.parentNode) stage.parentNode.removeChild(stage); var live=$("doc-live"); if(live) live.id="doc"; };
+  return window.html2canvas(stage, {scale:2, backgroundColor:"#FFFFFF", width:794, windowWidth:794, logging:false}).then(function(canvas){
+    cleanup();
+    var pdf=new window.jspdf.jsPDF({unit:"pt", format:"a4", orientation:"portrait"});
+    var pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
+    var img=canvas.toDataURL("image/jpeg", 0.94), ih=canvas.height*pw/canvas.width, y=0;
+    pdf.addImage(img, "JPEG", 0, 0, pw, ih);
+    for(var left=ih-ph; left>1; left-=ph){ y-=ph; pdf.addPage(); pdf.addImage(img, "JPEG", 0, y, pw, ih); }
+    return pdf;
+  }, function(e){ cleanup(); throw e; });
+}
+function docFileName(){
+  var t=String($("doc-title").textContent||"Document");
+  return (t.replace(/[^A-Za-z0-9 _-]+/g, " ").replace(/\s+/g, " ").trim().replace(/ /g, "-") || "Document")+".pdf";
+}
+$("doc-pdf").addEventListener("click", function(){
+  var btn=this; if(btn.disabled) return;
+  var label=btn.textContent; btn.disabled=true; btn.textContent="Preparing…";
+  ensurePdfLibs().then(docToPdf).then(function(pdf){ pdf.save(docFileName()); toast("PDF saved"); })
+    .catch(function(e){ toast(e.message || "Could not build the PDF — please try again", true); })
+    .then(function(){ btn.disabled=false; btn.textContent=label; });
+});
+
 /* ============================================================
    19. INVENTORY
    ============================================================ */

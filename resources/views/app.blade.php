@@ -473,7 +473,8 @@
     <div class="sheet-head">
       <h3 id="doc-title">Document</h3>
       <div style="display:flex; gap:8px">
-        <button class="btn sm primary" type="button" id="doc-print">Print / save PDF</button>
+        <button class="btn sm primary" type="button" id="doc-pdf">Download PDF</button>
+        <button class="btn sm" type="button" id="doc-print">Print</button>
         <button class="btn quiet sm" type="button" id="doc-close">Close</button>
       </div>
     </div>
