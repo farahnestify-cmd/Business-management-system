@@ -12,6 +12,7 @@ use App\Models\Milestone;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Transaction;
+use App\Support\RecycleBin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -231,7 +232,7 @@ class SalesController extends Controller
     /** Remove a payment that was recorded by mistake (owner only). */
     public function destroyPayment(Payment $payment)
     {
-        $payment->delete();
+        DB::transaction(fn () => RecycleBin::trash('payment', $payment, '$'.number_format((float) $payment->amount, 2).' '.$payment->type));
 
         return response()->json(['ok' => true]);
     }

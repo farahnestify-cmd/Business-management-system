@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\PayrollPayment;
+use App\Support\RecycleBin;
 use Illuminate\Http\Request;
 
 /**
@@ -40,7 +41,7 @@ class PayrollController extends Controller
 
     public function destroy(PayrollPayment $payrollPayment)
     {
-        $payrollPayment->delete();
+        RecycleBin::trash('payroll_payment', $payrollPayment, $payrollPayment->employee_name.' · '.$payrollPayment->month);
 
         return response()->json(['ok' => true]);
     }

@@ -7,6 +7,7 @@ use App\Models\Base;
 use App\Models\Client;
 use App\Models\CompanySetting;
 use App\Models\Cover;
+use App\Models\DeletedRecord;
 use App\Models\Delivery;
 use App\Models\Employee;
 use App\Models\Expense;
@@ -46,6 +47,7 @@ class BootstrapController extends Controller
             'employees' => $owner ? $api(Employee::orderBy('name')->get()) : [],
             'payroll' => $owner ? $api(PayrollPayment::orderByDesc('paid_date')->get()) : [],
             'users' => $owner ? $api(User::orderBy('name')->get()) : [],
+            'trash' => $owner ? $api(DeletedRecord::with('user')->latest('id')->limit(300)->get()) : [],
         ]);
     }
 }

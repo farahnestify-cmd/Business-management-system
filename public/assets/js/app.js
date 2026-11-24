@@ -15,7 +15,7 @@ var DEFAULTS = {
 var state = {
   view:"today", tab:{inventory:"stock", money:"pl"},
   filters:{sales:"open", contacts:"all", ledger:"all"},
-  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[],
+  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[],
   employees:[], payroll:[], suppliers:[], orders:[], users:[], user:null,
   settings:Object.assign({}, DEFAULTS),
   offer:{lines:[]}, ready:false, q:""
@@ -346,7 +346,7 @@ function api(method, path, body){
 function reload(){
   if(loading) return loading;
   loading = api("GET", "bootstrap").then(function(d){
-    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries"].forEach(function(k){
+    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash"].forEach(function(k){
       state[k] = d[k] || [];
     });
     state.user = d.user;
@@ -385,8 +385,9 @@ function save(collection, id, data, done){
   send(id ? "PUT" : "POST", collection + (id ? "/" + id : ""), data, done);
 }
 function remove(collection, id, what, done){
-  if(!window.confirm("Delete " + (what || "this record") + "? This cannot be undone.")) return;
-  send("DELETE", collection + "/" + id, null, function(){ closeForm(); if(done) done(); }, "Deleted");
+  if(!window.confirm("Delete " + (what || "this record") + "? The owner can restore it from Recently deleted.")) return;
+  send("DELETE", collection + "/" + id, null, function(){ closeForm(); if(done) done(); },
+    isOwner() ? "Moved to Recently deleted — you can restore it from Company settings" : "Deleted");
 }
 function isOwner(){ return !!(state.user && state.user.role==="owner"); }
 
@@ -634,7 +635,7 @@ function render(){
   if(state.view==="contacts") renderContacts();
   if(state.view==="money") renderMoney();
   if(state.view==="team") renderTeam();
-  if(state.view==="settings"){ renderSettings(); renderAccounts(); }
+  if(state.view==="settings"){ renderSettings(); renderAccounts(); renderData(); }
   if(!$("composer").hidden) renderComposer();
 }
 function renderNavCounts(){
@@ -2048,6 +2049,114 @@ $("s-save").addEventListener("click", function(){
 });
 
 /* ---------- Accounts (owner) and own password ---------- */
+/* ---------- Your data: backup, restore, spreadsheet; Recently deleted ---------- */
+var KIND_LABEL={client:"Contact", product:"Product", base:"Base", cover:"Cover", supplier:"Supplier", employee:"Person",
+  expense:"Expense", purchase_order:"Purchase order", payment:"Payment", payroll_payment:"Salary payment", user:"Account"};
+function renderData(){
+  $("data-section").hidden = $("trash-section").hidden = !isOwner();
+  if(!isOwner()) return;
+  $("trash-empty").disabled = !state.trash.length;
+  $("trash-body").innerHTML = state.trash.length ? state.trash.map(function(r){
+    return '<tr><td class="strong">'+esc(r.label)+'</td><td><span class="pill neutral">'+esc(KIND_LABEL[r.kind]||r.kind)+'</span></td>'+
+      '<td class="tiny muted">'+fmtDate((r.removed||"").slice(0,10))+(r.by ? ' · '+esc(r.by) : '')+'</td>'+
+      '<td style="text-align:right; white-space:nowrap"><button class="btn sm" type="button" data-restore="'+r.id+'">Restore</button> '+
+      '<button class="btn quiet sm" type="button" data-forget="'+r.id+'">Delete forever</button></td></tr>';
+  }).join("") : emptyRow(4,"Nothing has been deleted.");
+  $("trash-body").querySelectorAll("[data-restore]").forEach(function(b){
+    b.addEventListener("click", function(){
+      api("POST", "deleted/"+b.dataset.restore+"/restore").then(function(res){ return reload().then(function(){ toast(res.message||"Restored"); }); })
+        .catch(function(e){ toast(e.message, true); });
+    });
+  });
+  $("trash-body").querySelectorAll("[data-forget]").forEach(function(b){
+    b.addEventListener("click", function(){
+      if(!window.confirm("Delete this for good? It cannot be brought back after this.")) return;
+      api("DELETE", "deleted/"+b.dataset.forget).then(reload).catch(function(e){ toast(e.message, true); });
+    });
+  });
+}
+$("trash-empty").addEventListener("click", function(){
+  if(!window.confirm("Clear everything in Recently deleted? None of it can be brought back after this.")) return;
+  api("DELETE", "deleted").then(function(){ return reload().then(function(){ toast("Recently deleted cleared"); }); }).catch(function(e){ toast(e.message, true); });
+});
+$("data-backup").addEventListener("click", function(){ window.location.href = BASE + "/api/backup"; });
+$("data-restore").addEventListener("click", function(){ $("data-file").value=""; $("data-file").click(); });
+$("data-file").addEventListener("change", function(){
+  var f=this.files[0]; if(!f) return;
+  if(!window.confirm("Restore from “"+f.name+"”?\n\nEverything in the system now will be replaced by what is in this file. Accounts and passwords stay as they are.")) return;
+  var fd=new FormData(); fd.append("file", f);
+  toast("Restoring…");
+  fetch(BASE+"/api/restore", {method:"POST", body:fd, credentials:"same-origin",
+    headers:{"Accept":"application/json", "X-CSRF-TOKEN":CSRF, "X-Requested-With":"XMLHttpRequest"}})
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if(!r.ok) throw new Error(j.message||"Could not restore"); return j; }); })
+    .then(function(j){ return reload().then(function(){ toast("Restored: "+j.deals+" deals and "+j.contacts+" contacts"+(j.from ? " from "+fmtDate(j.from.slice(0,10)) : "")); }); })
+    .catch(function(e){ toast(e.message, true); });
+});
+
+/* Spreadsheet: built in the browser from what the page already holds. */
+function loadSheetLib(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise(function(ok, fail){
+    var sc=document.createElement("script");
+    /* Shipped with the app (SheetJS, Apache-2.0) so it works without internet. */
+    sc.src=BASE+"/assets/vendor/xlsx.full.min.js";
+    sc.onload=function(){ ok(window.XLSX); }; sc.onerror=function(){ fail(new Error("Could not load the spreadsheet tool")); };
+    document.head.appendChild(sc);
+  });
+}
+function r2(v){ return Math.round(num(v)*100)/100; }
+function workbookSheets(){
+  var stockRows=allStockRows().map(function(r){ var it=r.item;
+    return {"Kind":r.kind, "Item":it.name, "Category / line":it.category||it.line||"", "Cost":r2(itemCost(it)), "On hand":num(it.stockOnHand),
+      "Reserved":reservedFor(r.kind,it.id), "Incoming":incomingFor(r.kind,it.id), "Available":availableOf(r.kind,it), "Reorder at":num(it.reorderThreshold),
+      "Dealer WB":r2(it.dealerPriceWB), "End user WB":r2(it.endUserPriceWB), "Dealer 48":r2(it.dealerPrice48), "End user 48":r2(it.endUserPrice48),
+      "Programming fee":r2(it.programmingFee), "Cover add-on":r2(it.priceAddOn)}; });
+  var sheets=[
+    ["Deals", state.transactions.map(function(t){ return {"Reference":t.refNo, "Date":txDocDate(t), "Client":t.clientName, "Client type":t.clientType,
+      "Region":t.region, "Site":t.site||"", "Sold by":t.soldBy||"", "Stage":t.status, "Subtotal":r2(txSubtotal(t)), "VAT":r2(txVat(t)), "Total":r2(txTotal(t)),
+      "Paid":r2(txPaid(t)), "Balance":r2(txBalance(t)), "Cost of goods":r2(txCOGS(t)), "Margin":r2(txMargin(t)), "Invoiced on":t.invoiceDate||"", "Delivered on":t.deliveredDate||""}; })],
+    ["Deal lines", [].concat.apply([], state.transactions.map(function(t){ return (t.lineItems||[]).map(function(li){
+      return {"Reference":t.refNo, "Client":t.clientName, "Stage":t.status, "Item":li.name, "Qty":num(li.qty), "Delivered":num(li.deliveredQty),
+        "Unit price":r2(li.unitPrice), "Line total":r2(num(li.qty)*num(li.unitPrice)), "Unit cost":r2(li.costSnapshot)}; }); }))],
+    ["Payments", [].concat.apply([], state.transactions.map(function(t){ return normalizedPayments(t).map(function(p){
+      return {"Date":p.date, "Reference":t.refNo, "Client":t.clientName, "Type":p.type, "Method":p.method, "Amount":r2(p.amount)}; }); }))],
+    ["Payment schedule", [].concat.apply([], state.transactions.map(function(t){ return (t.milestones||[]).map(function(m){
+      return {"Reference":t.refNo, "Client":t.clientName, "Stage":m.label, "Due":m.dueDate||"", "Amount":r2(m.amount), "Paid":m.paid ? (m.paidDate||"yes") : ""}; }); }))],
+    ["Contacts", state.clients.map(function(c){ var st=clientStats(c);
+      return {"Name":c.name, "Type":c.type, "Region":c.region, "Discount %":r2(num(c.discountPct)*100), "Phone":c.phone, "Email":c.email,
+        "Deals":st.deals, "Billed":r2(st.billed), "Paid":r2(st.paid), "Outstanding":r2(st.outstanding)}; })],
+    ["Stock", stockRows],
+    ["Deliveries", state.deliveries.map(function(d){ var t=byId(state.transactions,d.transactionId)||{};
+      return {"Date":d.date, "Reference":t.refNo||"", "Client":t.clientName||"", "Item":d.name, "Qty":num(d.qty), "By":d.by||""}; })],
+    ["Purchase orders", state.orders.map(function(o){ return {"Order":o.refNo, "Supplier":o.supplierName, "Stage":o.status, "Ordered":o.orderedDate||"",
+      "Expected":o.expectedDate||"", "Received":o.receivedDate||"", "Units":poUnits(o), "Cost":r2(poTotal(o))}; })],
+    ["Suppliers", state.suppliers.map(function(sp){ var st=supplierStats(sp);
+      return {"Supplier":sp.name, "Contact":sp.contact, "Phone":sp.phone, "Email":sp.email, "Country":sp.country, "Orders":st.orders, "Spent":r2(st.spent)}; })],
+    ["Expenses", state.expenses.map(function(e){ return {"Date":e.date, "Category":e.category, "Description":e.description, "Paid to":e.vendor,
+      "Method":e.paymentMethod, "Amount":r2(e.amount), "Purchase order":e.poRef||""}; })],
+    ["Cash ledger", ledgerRows().map(function(r){ return {"Date":r.date, "Movement":r.label, "Reference":r.ref, "Method":r.method,
+      "In":r.dir==="in" ? r2(r.amount) : "", "Out":r.dir==="out" ? r2(r.amount) : ""}; })],
+    ["Profit and loss", monthKeys(12).map(plForMonth).map(function(m){ return {"Month":monthLabel(m.key), "Sales":r2(m.sales), "Cost of goods":r2(m.cogs),
+      "Gross margin":r2(m.gross), "Expenses":r2(m.expenses), "Salaries":r2(m.payroll), "Net":r2(m.net), "Collected":r2(m.collected)}; })]
+  ];
+  if(isOwner()){
+    sheets.push(["Payroll", state.payroll.map(function(p){ return {"Month":p.month, "Person":p.employeeName, "Paid on":p.paidDate||"", "Method":p.method, "Amount":r2(p.amount)}; })]);
+    sheets.push(["Team", state.employees.map(function(e){ return {"Name":e.name, "Role":e.role, "Monthly salary":r2(e.monthlySalary), "Active":e.active!==false ? "yes" : "no"}; })]);
+  }
+  return sheets;
+}
+$("data-xlsx").addEventListener("click", function(){
+  var btn=this; btn.disabled=true;
+  loadSheetLib().then(function(X){
+    var wb=X.utils.book_new();
+    workbookSheets().forEach(function(sh){
+      var ws = sh[1].length ? X.utils.json_to_sheet(sh[1]) : X.utils.aoa_to_sheet([["Nothing recorded yet"]]);
+      X.utils.book_append_sheet(wb, ws, sh[0]);
+    });
+    X.writeFile(wb, "nestify-"+todayISO()+".xlsx");
+  }).catch(function(e){ toast(e.message, true); }).then(function(){ btn.disabled=false; });
+});
+
 function renderAccounts(){
   $("accounts-section").hidden = !isOwner();
   if(!isOwner()) return;

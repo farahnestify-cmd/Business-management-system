@@ -11,8 +11,10 @@ use App\Models\Product;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\TransactionItem;
+use App\Support\RecycleBin;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Create / update / delete for the plain records: contacts, stock items,
@@ -112,7 +114,9 @@ class RecordController extends Controller
             return response()->json(['message' => 'This item appears on deals, so it cannot be deleted. Set its stock to zero instead.'], 409);
         }
 
-        $model->delete();
+        $kind = ['clients' => 'client', 'products' => 'product', 'bases' => 'base', 'covers' => 'cover',
+            'suppliers' => 'supplier', 'employees' => 'employee'][$collection];
+        DB::transaction(fn () => RecycleBin::trash($kind, $model, $model->name));
 
         return response()->json(['ok' => true]);
     }

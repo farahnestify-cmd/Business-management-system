@@ -382,3 +382,6 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 
 /* Long sheets scroll instead of squeezing their panels. */
 .sheet-body > *{flex-shrink:0}
+
+/* "hidden" always wins over a component's own display (e.g. .btn is inline-flex). */
+[hidden]{display:none!important}

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Api\BootstrapController;
+use App\Http\Controllers\Api\DataController;
 use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\PayrollController;
 use App\Http\Controllers\Api\PurchaseOrderController;
@@ -45,6 +46,11 @@ Route::middleware('auth')->group(function () {
         Route::middleware('owner')->group(function () {
             Route::put('settings', [SettingsController::class, 'update']);
             Route::delete('payments/{payment}', [SalesController::class, 'destroyPayment']);
+            Route::get('backup', [DataController::class, 'backup']);
+            Route::post('restore', [DataController::class, 'restore']);
+            Route::post('deleted/{deletedRecord}/restore', [DataController::class, 'restoreDeleted']);
+            Route::delete('deleted/{deletedRecord}', [DataController::class, 'forget']);
+            Route::delete('deleted', [DataController::class, 'emptyBin']);
             Route::post('payroll_payments', [PayrollController::class, 'store']);
             Route::delete('payroll_payments/{payrollPayment}', [PayrollController::class, 'destroy']);
             Route::post('users', [AccountController::class, 'store']);

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Expense;
 use App\Models\Product;
+use App\Support\RecycleBin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -35,7 +36,7 @@ class ExpenseController extends Controller
         }
         DB::transaction(function () use ($expense) {
             $this->restock($expense->linked_product_id, -$expense->qty_purchased);
-            $expense->delete();
+            RecycleBin::trash('expense', $expense, $expense->description.' · $'.number_format((float) $expense->amount, 2));
         });
 
         return response()->json(['ok' => true]);

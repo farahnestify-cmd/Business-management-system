@@ -344,6 +344,28 @@
             </div>
           </div>
         </div>
+        <div class="section" id="data-section" hidden>
+          <div class="section-head"><div><h2>Your data</h2><p class="sub">Keep a copy somewhere safe — a USB stick or Google Drive. The backup holds every record, including Recently deleted; the spreadsheet is for reading and sharing.</p></div></div>
+          <div class="panel panel-pad">
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
+              <button class="btn primary" type="button" id="data-backup">Download a full backup</button>
+              <button class="btn" type="button" id="data-xlsx">Download as a spreadsheet</button>
+              <button class="btn danger" type="button" id="data-restore">Restore from a backup…</button>
+              <input type="file" id="data-file" accept=".json,application/json" hidden>
+            </div>
+            <p class="tiny muted" style="margin-top:12px">Restoring replaces everything in the system with the file's contents. Accounts and passwords stay as they are, and a copy of the current data is kept on the server first.</p>
+          </div>
+        </div>
+        <div class="section" id="trash-section" hidden>
+          <div class="section-head">
+            <div><h2>Recently deleted</h2><p class="sub">Anything removed waits here until you restore it or clear it on purpose.</p></div>
+            <button class="btn sm danger" type="button" id="trash-empty">Clear all</button>
+          </div>
+          <div class="panel"><div class="table-wrap"><table>
+            <thead><tr><th>Item</th><th>Kind</th><th>Removed</th><th></th></tr></thead>
+            <tbody id="trash-body"></tbody>
+          </table></div></div>
+        </div>
         <div class="section" id="accounts-section" hidden>
           <div class="section-head">
             <div><h2>Accounts</h2><p class="sub">Who can sign in. Staff accounts use everything except payroll and company settings.</p></div>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Support\RecycleBin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -51,7 +52,7 @@ class AccountController extends Controller
         if ($user->id === $request->user()->id) {
             return response()->json(['message' => 'You cannot delete the account you are signed in with.'], 409);
         }
-        $user->delete();
+        RecycleBin::trash('user', $user, $user->name.' · '.$user->email);
 
         return response()->json(['ok' => true]);
     }

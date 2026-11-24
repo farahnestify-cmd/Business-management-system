@@ -7,6 +7,7 @@ use App\Models\Expense;
 use App\Models\PurchaseOrder;
 use App\Models\StockItem;
 use App\Models\Supplier;
+use App\Support\RecycleBin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -85,7 +86,7 @@ class PurchaseOrderController extends Controller
         if ($purchaseOrder->status === 'Received') {
             return response()->json(['message' => 'A received order has already moved stock and cannot be deleted.'], 409);
         }
-        $purchaseOrder->delete();
+        DB::transaction(fn () => RecycleBin::trash('purchase_order', $purchaseOrder, $purchaseOrder->ref_no.' · '.$purchaseOrder->supplier_name));
 
         return response()->json(['ok' => true]);
     }
