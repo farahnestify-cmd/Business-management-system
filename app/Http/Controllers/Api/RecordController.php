@@ -38,13 +38,13 @@ class RecordController extends Controller
         'notes' => ['notes', 'nullable|string|max:5000'],
     ];
 
-    /** collection => [model, owner only, field map (api => [column, rules])] */
+    /** collection => [model, who may write it (any | manager | owner), field map (api => [column, rules])] */
     private function config(string $collection): array
     {
         $name = ['name' => ['name', 'required|string|max:255']];
 
         return match ($collection) {
-            'clients' => [Client::class, false, $name + [
+            'clients' => [Client::class, 'any', $name + [
                 'type' => ['type', 'required|in:End User,Dealer,Partner'],
                 'region' => ['region', 'required|in:West Bank,48 Region'],
                 'discountPct' => ['discount_pct', 'numeric|min:0|max:1'],
@@ -52,26 +52,26 @@ class RecordController extends Controller
                 'email' => ['email', 'nullable|string|max:255'],
                 'notes' => ['notes', 'nullable|string|max:5000'],
             ]],
-            'products' => [Product::class, false, $name + [
+            'products' => [Product::class, 'manager', $name + [
                 'category' => ['category', 'required|string|max:40'],
             ] + self::PRICE_BOOK + self::STOCK],
-            'bases' => [Base::class, false, $name + [
+            'bases' => [Base::class, 'manager', $name + [
                 'line' => ['line', 'nullable|string|max:40'],
             ] + self::PRICE_BOOK + self::STOCK],
-            'covers' => [Cover::class, false, $name + [
+            'covers' => [Cover::class, 'manager', $name + [
                 'line' => ['line', 'nullable|string|max:40'],
                 'color' => ['color', 'nullable|string|max:60'],
                 'finish' => ['finish', 'required|in:Glossy,Matte'],
                 'priceAddOn' => ['price_add_on', 'numeric|min:0'],
             ] + self::STOCK],
-            'suppliers' => [Supplier::class, false, $name + [
+            'suppliers' => [Supplier::class, 'owner', $name + [
                 'contact' => ['contact', 'nullable|string|max:255'],
                 'phone' => ['phone', 'nullable|string|max:60'],
                 'email' => ['email', 'nullable|string|max:255'],
                 'country' => ['country', 'nullable|string|max:80'],
                 'notes' => ['notes', 'nullable|string|max:5000'],
             ]],
-            'employees' => [Employee::class, true, $name + [
+            'employees' => [Employee::class, 'owner', $name + [
                 'role' => ['role', 'nullable|string|max:120'],
                 'monthlySalary' => ['monthly_salary', 'numeric|min:0'],
                 'active' => ['active', 'boolean'],
@@ -124,8 +124,13 @@ class RecordController extends Controller
     private function guard(Request $request, string $collection): array
     {
         $cfg = $this->config($collection);
-        if ($cfg[1] && ! $request->user()->isOwner()) {
-            abort(403, 'Only the owner can change this.');
+        $user = $request->user();
+        if (($cfg[1] === 'owner' && ! $user->isOwner()) || ($cfg[1] === 'manager' && ! $user->isManager())) {
+            abort(403, $cfg[1] === 'owner' ? 'Only the owner can change this.' : 'Only an owner or admin can change this.');
+        }
+        // Cost prices are the owner's: anyone else's edit leaves them as they are.
+        if (! $user->seesCosts()) {
+            unset($cfg[2]['cost']);
         }
 
         return $cfg;

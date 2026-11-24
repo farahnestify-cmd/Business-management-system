@@ -30,20 +30,31 @@ class BootstrapController extends Controller
         $user = $request->user();
         $owner = $user->isOwner();
         $api = fn ($rows) => $rows->map->toApi()->values();
+        // Below the owner, cost prices never leave the server: they arrive as zero.
+        $stock = fn ($rows) => $rows->map(fn ($m) => $owner ? $m->toApi() : array_merge($m->toApi(), ['cost' => 0, 'baseCost' => 0]))->values();
+        $deals = Transaction::with(['items', 'payments', 'milestones.payment', 'creator'])->orderByDesc('created_at')->orderByDesc('id')->get()
+            ->map(function ($t) use ($owner) {
+                $row = $t->toApi();
+                if (! $owner) {
+                    $row['lineItems'] = array_map(fn ($li) => array_merge($li, ['costSnapshot' => 0]), $row['lineItems']);
+                }
+
+                return $row;
+            })->values();
 
         return response()->json([
             'user' => $user->toApi(),
             'settings' => CompanySetting::current()->toApi(),
             'clients' => $api(Client::orderBy('name')->get()),
-            'products' => $api(Product::orderBy('name')->get()),
-            'bases' => $api(Base::orderBy('line')->orderBy('name')->get()),
-            'covers' => $api(Cover::orderBy('line')->orderBy('name')->get()),
-            'transactions' => $api(Transaction::with(['items', 'payments', 'milestones.payment', 'creator'])->orderByDesc('created_at')->orderByDesc('id')->get()),
-            'expenses' => $api(Expense::orderByDesc('date')->orderByDesc('id')->get()),
-            'suppliers' => $api(Supplier::orderBy('name')->get()),
+            'products' => $stock(Product::orderBy('name')->get()),
+            'bases' => $stock(Base::orderBy('line')->orderBy('name')->get()),
+            'covers' => $stock(Cover::orderBy('line')->orderBy('name')->get()),
+            'transactions' => $deals,
             'deliveries' => $api(Delivery::with(['line', 'user'])->orderByDesc('delivered_on')->orderByDesc('id')->get()),
-            'orders' => $api(PurchaseOrder::with('lines')->orderByDesc('ordered_date')->orderByDesc('id')->get()),
-            // Salary data never leaves the server for staff accounts.
+            // Money, purchasing, salaries, accounts and the bin are the owner's.
+            'expenses' => $owner ? $api(Expense::orderByDesc('date')->orderByDesc('id')->get()) : [],
+            'suppliers' => $owner ? $api(Supplier::orderBy('name')->get()) : [],
+            'orders' => $owner ? $api(PurchaseOrder::with('lines')->orderByDesc('ordered_date')->orderByDesc('id')->get()) : [],
             'employees' => $owner ? $api(Employee::orderBy('name')->get()) : [],
             'payroll' => $owner ? $api(PayrollPayment::orderByDesc('paid_date')->get()) : [],
             'users' => $owner ? $api(User::orderBy('name')->get()) : [],

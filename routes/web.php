@@ -33,21 +33,23 @@ Route::middleware('auth')->group(function () {
         Route::post('transactions/{transaction}/milestones/{milestone}/pay', [SalesController::class, 'payMilestone']);
         Route::post('transactions/{transaction}/refunds', [SalesController::class, 'refund']);
 
-        Route::post('purchase_orders', [PurchaseOrderController::class, 'store']);
-        Route::put('purchase_orders/{purchaseOrder}', [PurchaseOrderController::class, 'update']);
-        Route::post('purchase_orders/{purchaseOrder}/receive', [PurchaseOrderController::class, 'receive']);
-        Route::delete('purchase_orders/{purchaseOrder}', [PurchaseOrderController::class, 'destroy']);
-
-        Route::post('expenses', [ExpenseController::class, 'store']);
-        Route::put('expenses/{expense}', [ExpenseController::class, 'update']);
-        Route::delete('expenses/{expense}', [ExpenseController::class, 'destroy']);
-
         Route::post('account/password', [AccountController::class, 'password']);
 
-        Route::middleware('owner')->group(function () {
+        Route::middleware('manager')->group(function () {
             Route::put('settings', [SettingsController::class, 'update']);
             Route::put('brand/{which}', [SettingsController::class, 'saveImage'])->whereIn('which', ['logo', 'hero']);
             Route::delete('brand/{which}', [SettingsController::class, 'removeImage'])->whereIn('which', ['logo', 'hero']);
+        });
+
+        // Money and purchasing: the owner only.
+        Route::middleware('owner')->group(function () {
+            Route::post('purchase_orders', [PurchaseOrderController::class, 'store']);
+            Route::put('purchase_orders/{purchaseOrder}', [PurchaseOrderController::class, 'update']);
+            Route::post('purchase_orders/{purchaseOrder}/receive', [PurchaseOrderController::class, 'receive']);
+            Route::delete('purchase_orders/{purchaseOrder}', [PurchaseOrderController::class, 'destroy']);
+            Route::post('expenses', [ExpenseController::class, 'store']);
+            Route::put('expenses/{expense}', [ExpenseController::class, 'update']);
+            Route::delete('expenses/{expense}', [ExpenseController::class, 'destroy']);
             Route::delete('payments/{payment}', [SalesController::class, 'destroyPayment']);
             Route::get('backup', [DataController::class, 'backup']);
             Route::post('restore', [DataController::class, 'restore']);

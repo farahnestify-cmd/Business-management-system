@@ -350,6 +350,7 @@ function reload(){
       state[k] = d[k] || [];
     });
     state.user = d.user;
+    applyRole();
     state.settings = Object.assign({}, DEFAULTS, d.settings || {});
     prepareWhiteLogo();
     state.ready = true;
@@ -391,6 +392,24 @@ function remove(collection, id, what, done){
     isOwner() ? "Moved to Recently deleted — you can restore it from Company settings" : "Deleted");
 }
 function isOwner(){ return !!(state.user && state.user.role==="owner"); }
+function isManager(){ return !!(state.user && (state.user.role==="owner" || state.user.role==="admin")); }
+function isSalesRole(){ return !!(state.user && state.user.role==="staff"); }
+function costsVisible(){ return isOwner(); }
+var ROLE_LABEL={owner:"Owner", admin:"Admin", staff:"Sales"};
+function allowed(need){ return !need || (need==="owner" ? isOwner() : (need==="manager" ? isManager() : true)); }
+/* Show each part of the page only to the roles that may use it; the server refuses the rest anyway. */
+function applyRole(){
+  if(!state.user) return;
+  document.documentElement.setAttribute("data-role", state.user.role);
+  document.querySelectorAll("[data-need]").forEach(function(el){ el.hidden = !allowed(el.dataset.need); });
+  $("settings-link").textContent = isManager() ? "Company settings" : "My account";
+  if(!isOwner() && (state.tab.inventory==="orders" || state.tab.inventory==="suppliers")){
+    state.tab.inventory="stock";
+    ["stock","orders","suppliers","deliver"].forEach(function(k){ $("inv-pane-"+k).hidden = k!=="stock"; });
+    $("inv-tabs").querySelectorAll("button").forEach(function(b){ b.setAttribute("aria-pressed", String(b.dataset.t==="stock")); });
+  }
+  if(!isOwner() && (state.view==="money" || state.view==="team")) setView("today");
+}
 
 /* ============================================================
    10. NAVIGATION
@@ -405,6 +424,7 @@ var VIEWS = {
   settings:{title:"Company settings", action:null}
 };
 function setView(name){
+  if(state.user && !isOwner() && (name==="money" || name==="team")) name="today";
   state.view = name;
   document.querySelectorAll(".view").forEach(function(v){ v.hidden = (v.id !== "view-"+name); });
   document.querySelectorAll(".nav-btn").forEach(function(b){ b.setAttribute("aria-current", String(b.dataset.view===name)); });
@@ -413,6 +433,7 @@ function setView(name){
   var pa = $("primary-action");
   if(cfg.action){ pa.hidden=false; pa.textContent=cfg.action.label; pa.onclick=cfg.action.fn; } else { pa.hidden=true; }
   if(name==="inventory") syncInventoryAction();
+  if(name==="settings") $("view-title").textContent = isManager() ? "Company settings" : "My account";
   window.scrollTo(0,0);
   render();
 }
@@ -421,6 +442,9 @@ function syncInventoryAction(){
   if(state.tab.inventory==="orders"){ pa.textContent="New purchase order"; pa.onclick=function(){ editOrder(null); }; }
   else if(state.tab.inventory==="suppliers"){ pa.textContent="Add supplier"; pa.onclick=function(){ editSupplier(null); }; }
   else { pa.textContent="Add product"; pa.onclick=function(){ editStock("product", null); }; }
+  /* The catalogue is kept by owners and admins. */
+  if(state.user && !isManager() && state.tab.inventory!=="orders" && state.tab.inventory!=="suppliers") pa.hidden=true;
+  else if(state.view==="inventory") pa.hidden=false;
 }
 document.querySelectorAll(".nav-btn").forEach(function(b){
   b.addEventListener("click", function(){ setView(b.dataset.view); });
@@ -488,8 +512,9 @@ function openForm(title, groups, onSave, onDelete){
   $("form-body").innerHTML = groups.map(function(g){
     if(g.heading) return '<p class="eyebrow" style="margin-top:4px">'+esc(g.heading)+'</p>';
     if(g.note) return '<p class="tiny muted">'+esc(g.note)+'</p>';
-    var cols = g.fields.length>=3 ? "g3" : (g.fields.length===2 ? "g2" : "");
-    return '<div class="grid '+cols+'">' + g.fields.map(fieldHtml).join("") + '</div>';
+    var fields=g.fields.filter(Boolean); /* a field can be left out for a role */
+    var cols = fields.length>=3 ? "g3" : (fields.length===2 ? "g2" : "");
+    return '<div class="grid '+cols+'">' + fields.map(fieldHtml).join("") + '</div>';
   }).join("");
   formSave = onSave;
   setFormDelete(onDelete);
@@ -603,7 +628,7 @@ function applyBrand(){
   $("brand-mark").textContent = s.name || "Nestify";
   $("brand-sub").textContent = "Operations";
   $("ref-hint").textContent = buildRef(yymmOf(todayISO()),"W","D", nextSeq(yymmOf(todayISO())));
-  if(state.user) $("who").textContent = state.user.name + " · " + (state.user.role==="owner" ? "Owner" : "Staff");
+  if(state.user) $("who").textContent = state.user.name + " · " + (ROLE_LABEL[state.user.role]||state.user.role);
 }
 
 /* ============================================================
@@ -725,7 +750,7 @@ function buildQueue(){
         value:money(e.monthlySalary), go:function(){ setView("team"); }});
     }
   });
-  var noCost = allStockRows().filter(function(r){ return itemCost(r.item)<=0; });
+  var noCost = costsVisible() ? allStockRows().filter(function(r){ return itemCost(r.item)<=0; }) : [];
   if(noCost.length){
     items.push({sev:"info", area:"inventory", title:noCost.length+" item"+(noCost.length>1?"s have":" has")+" no cost recorded",
       detail:"Margin stays blank until you add what you pay for them", value:"",
@@ -737,11 +762,16 @@ function buildQueue(){
 
 function renderToday(){
   var mk=thisMonth(), pl=plForMonth(mk);
-  $("today-figs").innerHTML =
+  var live=state.transactions.filter(isLive);
+  $("today-figs").innerHTML = costsVisible() ?
     figure("Collected in "+monthShort(mk), money0(pl.collected)) +
     figure("Outstanding from clients", money0(outstandingTotal())) +
     figure("Stock at cost", money0(stockValue())) +
-    figure("Net this month", money0(pl.net));
+    figure("Net this month", money0(pl.net)) :
+    figure("Collected in "+monthShort(mk), money0(pl.collected)) +
+    figure("Outstanding from clients", money0(outstandingTotal())) +
+    figure("In the pipeline", money0(sum(live.filter(function(t){ return t.status==="Quotation" || t.status==="Agreement"; }), txTotal))) +
+    figure("Invoiced in "+monthShort(mk), money0(pl.sales));
 
   var q=buildQueue();
   $("queue").innerHTML = q.length ? q.slice(0,14).map(function(it,i){
@@ -754,6 +784,8 @@ function renderToday(){
     b.addEventListener("click", function(){ q[Number(b.dataset.q)].go(); });
   });
 
+  /* The month's profit and loss is built from cost prices: the owner's view only. */
+  $("month-summary").closest(".panel").hidden = !costsVisible();
   $("month-summary").innerHTML =
     '<div style="display:flex; flex-direction:column; gap:11px">' +
     [["Sales invoiced", money(pl.sales)],
@@ -815,7 +847,7 @@ function renderSales(){
     figure("In the pipeline", money0(sum(pipeline,txTotal))) +
     figure("Invoiced in "+monthShort(mk), money0(sum(billedThis,txTotal))) +
     figure("Outstanding", money0(outstandingTotal())) +
-    figure("Average margin", withCost.length ? pct(marginPct,0) : "—");
+    (costsVisible() ? figure("Average margin", withCost.length ? pct(marginPct,0) : "—") : figure("Deals this month", String(live.filter(function(t){ return monthKey(txDocDate(t))===mk; }).length)));
 
   var rows=salesRows();
   $("sales-count").textContent = rows.length + (rows.length===1?" deal":" deals") +
@@ -832,7 +864,7 @@ function renderSales(){
       '<td class="num">'+money(txTotal(t))+'</td>'+
       '<td class="num">'+balanceCell(t)+'</td>'+
       '<td>'+(isLive(t) && bal>0.004 && age!=null ? '<span class="pill '+(overdue?"bad":"neutral")+'">'+age+'d</span>' : '<span class="faint tiny">—</span>')+'</td>'+
-      '<td class="num">'+m+'</td>'+
+      '<td class="num c-cost">'+m+'</td>'+
     '</tr>';
   }).join("") : emptyRow(7,"No deals in this view.");
   $("sales-body").querySelectorAll("[data-tx]").forEach(function(r){
@@ -862,7 +894,7 @@ function openTx(id){
     return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td>'+
       (showDelivered ? '<td class="num">'+(left>0 ? '<span style="color:var(--warn)">'+num(li.deliveredQty)+'</span>' : num(li.deliveredQty))+'</td>' : '')+
       '<td class="num">'+money(li.unitPrice)+'</td>'+
-      '<td class="num">'+(unitCost>0 ? money(lineMargin) : '<span class="faint">—</span>')+'</td>'+
+      '<td class="num c-cost">'+(unitCost>0 ? money(lineMargin) : '<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+money(num(li.qty)*num(li.unitPrice))+'</td></tr>';
   }).join("");
 
@@ -879,13 +911,13 @@ function openTx(id){
       '<div class="kv"><span class="k">Dated</span><span class="v">'+fmtDate(txDocDate(t))+'</span></div>'+
     '</div>'+
     '<div class="panel"><div class="table-wrap"><table>'+
-      '<thead><tr><th>Item</th><th class="num">Qty</th>'+(showDelivered?'<th class="num">Delivered</th>':'')+'<th class="num">Price</th><th class="num">Margin</th><th class="num">Total</th></tr></thead>'+
+      '<thead><tr><th>Item</th><th class="num">Qty</th>'+(showDelivered?'<th class="num">Delivered</th>':'')+'<th class="num">Price</th><th class="num c-cost">Margin</th><th class="num">Total</th></tr></thead>'+
       '<tbody>'+(lines||emptyRow(5,"No items"))+'</tbody></table></div></div>'+
     '<div class="totals">'+
       '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(txSubtotal(t))+'</span></div>'+
       (num(t.vatPct)>0 ? '<div class="r"><span class="l">VAT '+num(t.vatPct)+'%</span><span class="mono">'+money(txVat(t))+'</span></div>' : '')+
       '<div class="r"><span class="l">Paid</span><span class="mono">'+money(txPaid(t))+'</span></div>'+
-      (txHasCost(t) ? '<div class="r"><span class="l">Margin</span><span class="mono">'+money(txMargin(t))+' · '+pct(txMargin(t)/(txSubtotal(t)||1),0)+'</span></div>' : '')+
+      (txHasCost(t) ? '<div class="r c-cost"><span class="l">Margin</span><span class="mono">'+money(txMargin(t))+' · '+pct(txMargin(t)/(txSubtotal(t)||1),0)+'</span></div>' : '')+
       (due>0.004 ? '<div class="r grand"><span class="l">Refund due to client</span><span class="v">'+money(due)+'</span></div>'
         : (live ? '<div class="r grand"><span class="l">Balance</span><span class="v">'+money(Math.max(0,txBalance(t)))+'</span></div>' : ''))+
     '</div>'+
@@ -1067,7 +1099,7 @@ function renderComposer(){
     if(!ln.touched) ln.unitPrice=Math.round(suggested*100)/100;
     var cost=lineCost(ln), lineTotal=num(ln.qty)*num(ln.unitPrice);
     var off=num(ln.unitPrice)-suggested;
-    var marginTxt = cost>0 ? pct((num(ln.unitPrice)-cost)/(num(ln.unitPrice)||1),0) : "—";
+    var marginTxt = costsVisible() ? (cost>0 ? pct((num(ln.unitPrice)-cost)/(num(ln.unitPrice)||1),0) : "—") : "";
     var itemVal = ln.kind==="combo" ? (ln.baseId?"b:"+ln.baseId:"") : (ln.productId?"p:"+ln.productId:"");
     var avail = null;
     if(ln.kind==="combo"){ var bb=baseById(ln.baseId), cc=coverById(ln.coverId);
@@ -1092,9 +1124,9 @@ function renderComposer(){
         (avail!=null && num(ln.qty)>avail ? '<div class="tiny" style="color:var(--warn); margin-top:4px">'+(avail>0 ? 'only '+avail+' available' : 'none available')+'</div>' : '')+'</div>'+
       '<div><div class="lbl">Book price</div><div class="fixed">'+money(suggested)+'</div></div>'+
       '<div><div class="lbl">You charge</div><input data-f="price" type="number" step="0.01" value="'+num(ln.unitPrice).toFixed(2)+'"></div>'+
-      '<div><div class="lbl">Line · margin</div><div class="fixed">'+money(lineTotal)+
+      '<div><div class="lbl">'+(costsVisible() ? "Line · margin" : "Line")+'</div><div class="fixed">'+money(lineTotal)+
         '<div class="tiny '+(Math.abs(off)>num(state.settings.varianceFlag)?"":"faint")+'" style="'+(Math.abs(off)>num(state.settings.varianceFlag)?"color:var(--warn)":"")+'">'+
-          marginTxt+(Math.abs(off)>num(state.settings.varianceFlag) ? " · "+(off>0?"+":"")+money0(off)+" off book" : "")+'</div></div></div>'+
+          marginTxt+(Math.abs(off)>num(state.settings.varianceFlag) ? (marginTxt?" · ":"")+(off>0?"+":"")+money0(off)+" off book" : "")+'</div></div></div>'+
       '<div><div class="lbl">&nbsp;</div><button class="btn quiet sm" data-f="remove" type="button" aria-label="Remove line">×</button></div>'+
     '</div>';
   }).join("") || '<p class="tiny muted">No items yet — add the first line.</p>';
@@ -1128,7 +1160,7 @@ function renderComposer(){
   $("of-totals").innerHTML =
     '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(subtotal)+'</span></div>'+
     (ctx.discount>0 ? '<div class="r"><span class="l">Client discount applied</span><span class="mono">'+pct(ctx.discount)+'</span></div>' : '')+
-    (cogs>0 ? '<div class="r"><span class="l">Margin on this offer</span><span class="mono">'+money(subtotal-cogs)+' · '+pct((subtotal-cogs)/(subtotal||1),0)+'</span></div>' : '')+
+    (cogs>0 ? '<div class="r c-cost"><span class="l">Margin on this offer</span><span class="mono">'+money(subtotal-cogs)+' · '+pct((subtotal-cogs)/(subtotal||1),0)+'</span></div>' : '')+
     (vat>0 ? '<div class="r"><span class="l">VAT '+num(state.settings.vatPct)+'%</span><span class="mono">'+money(vat)+'</span></div>' : '')+
     '<div class="r grand"><span class="l">Total</span><span class="v">'+money(subtotal+vat)+'</span></div>'+
     (state.offer.editId ? '' : '<div class="r"><span class="l">Balance after payment now</span><span class="mono">'+money(subtotal+vat-paid)+'</span></div>');
@@ -1439,7 +1471,7 @@ function renderInventory(){
   $("inv-products").innerHTML = state.products.length ? state.products.map(function(p){
     return '<tr class="clickable" data-edit="product:'+p.id+'">'+
       '<td class="strong">'+esc(p.name)+'</td><td class="tiny muted">'+esc(p.category||"")+'</td>'+
-      '<td class="num">'+(itemCost(p)>0?money(itemCost(p)):'<span class="faint">—</span>')+'</td>'+
+      '<td class="num c-cost">'+(itemCost(p)>0?money(itemCost(p)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(p.stockOnHand)+'</td><td class="num">'+reservedFor("product",p.id)+'</td>'+
       '<td class="num">'+(incomingFor("product",p.id)||'<span class="faint">—</span>')+'</td>'+
       '<td class="num strong">'+availCell("product",p)+'</td><td>'+stockPill("product",p)+'</td></tr>';
@@ -1448,7 +1480,7 @@ function renderInventory(){
   $("inv-bases").innerHTML = state.bases.length ? state.bases.map(function(b){
     return '<tr class="clickable" data-edit="base:'+b.id+'">'+
       '<td class="strong">'+esc(b.name)+'</td><td class="tiny muted">'+esc(b.line||"")+'</td>'+
-      '<td class="num">'+(itemCost(b)>0?money(itemCost(b)):'<span class="faint">—</span>')+'</td>'+
+      '<td class="num c-cost">'+(itemCost(b)>0?money(itemCost(b)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(b.stockOnHand)+'</td><td class="num">'+reservedFor("base",b.id)+'</td>'+
       '<td class="num">'+(incomingFor("base",b.id)||'<span class="faint">—</span>')+'</td>'+
       '<td class="num strong">'+availCell("base",b)+'</td><td>'+stockPill("base",b)+'</td></tr>';
@@ -1459,7 +1491,7 @@ function renderInventory(){
       '<td class="strong">'+esc(c.name)+'</td><td class="tiny muted">'+esc(c.line||"")+'</td>'+
       '<td class="tiny muted">'+esc(c.finish||"")+'</td>'+
       '<td class="num">'+money(c.priceAddOn)+'</td>'+
-      '<td class="num">'+(itemCost(c)>0?money(itemCost(c)):'<span class="faint">—</span>')+'</td>'+
+      '<td class="num c-cost">'+(itemCost(c)>0?money(itemCost(c)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(c.stockOnHand)+'</td><td class="num">'+reservedFor("cover",c.id)+'</td>'+
       '<td class="num strong">'+availCell("cover",c)+'</td><td>'+stockPill("cover",c)+'</td></tr>';
   }).join("") : emptyRow(9,"No covers yet.");
@@ -1553,12 +1585,12 @@ function openStockItem(kind, item){
           '<td class="mono tiny">'+esc(r.ref)+'</td><td class="num strong" style="color:'+(r.qty<0?"var(--bad)":"var(--good)")+'">'+(r.qty>0?"+":"")+r.qty+'</td></tr>';
       }).join("") : emptyRow(4,"No movements recorded yet."))+
     '</tbody></table></div></div></div>'+
-    '<div style="display:flex; gap:8px"><button class="btn sm" type="button" id="si-edit">Edit item</button></div>';
+    (isManager() ? '<div style="display:flex; gap:8px"><button class="btn sm" type="button" id="si-edit">Edit item</button></div>' : '');
   openDrawer(item.name, html);
   $("drawer-body").querySelectorAll("[data-go]").forEach(function(r){
     r.addEventListener("click", function(){ go[Number(r.dataset.go)](); });
   });
-  $("si-edit").addEventListener("click", function(){ closeDrawer(); editStock(kind, item); });
+  if($("si-edit")) $("si-edit").addEventListener("click", function(){ closeDrawer(); editStock(kind, item); });
 }
 
 function editStock(kind, item){
@@ -1595,16 +1627,16 @@ function editStock(kind, item){
   }
   groups.push({heading:"Stock"});
   groups.push({fields:[
-    {id:"f-cost", label:"What it costs you", type:"number", step:"0.01", value:itemCost(d)},
+    costsVisible() ? {id:"f-cost", label:"What it costs you", type:"number", step:"0.01", value:itemCost(d)} : null,
     {id:"f-stock", label:"On hand", type:"number", step:"1", value:num(d.stockOnHand)},
     {id:"f-reorder", label:"Reorder at", type:"number", step:"1", value:num(d.reorderThreshold)}]});
-  groups.push({note:"Cost drives every margin figure in the system. Leave it at zero and margins stay blank."});
+  if(costsVisible()) groups.push({note:"Cost drives every margin figure in the system. Leave it at zero and margins stay blank."});
 
   openForm((isNew?"Add ":"Edit ")+titleMap[kind], groups, function(){
     if(!val("f-name")){ toast("Give it a name first", true); return false; }
     var data={
       name:val("f-name"),
-      cost:valNum("f-cost"), baseCost:valNum("f-cost"),
+      cost:costsVisible() ? valNum("f-cost") : undefined,
       stockOnHand:valNum("f-stock"), reorderThreshold:valNum("f-reorder")
     };
     if(kind==="cover"){
@@ -2316,7 +2348,7 @@ function renderAccounts(){
   if(!isOwner()) return;
   $("acc-body").innerHTML = state.users.length ? state.users.map(function(u){
     return '<tr class="clickable" data-u="'+u.id+'"><td class="strong">'+esc(u.name)+'</td><td class="mono tiny">'+esc(u.email)+'</td>'+
-      '<td><span class="pill '+(u.role==="owner"?"accent":"neutral")+'">'+(u.role==="owner"?"Owner":"Staff")+'</span></td></tr>';
+      '<td><span class="pill '+(u.role==="owner"?"accent":(u.role==="admin"?"info":"neutral"))+'">'+esc(ROLE_LABEL[u.role]||u.role)+'</span></td></tr>';
   }).join("") : emptyRow(3,"No accounts.");
   $("acc-body").querySelectorAll("[data-u]").forEach(function(r){
     r.addEventListener("click", function(){ editAccount(byId(state.users, r.dataset.u)); });
@@ -2326,9 +2358,9 @@ function editAccount(u){
   var isNew=!u; var d=u||{name:"", email:"", role:"staff"};
   openForm((isNew?"Add":"Edit")+" account", [
     {fields:[{id:"u-name", label:"Name", value:d.name}, {id:"u-email", label:"Email", type:"email", value:d.email}]},
-    {fields:[{id:"u-role", label:"Role", type:"select", options:[{value:"staff", label:"Staff"},{value:"owner", label:"Owner"}], value:d.role},
+    {fields:[{id:"u-role", label:"Role", type:"select", options:[{value:"staff", label:"Sales"},{value:"admin", label:"Admin"},{value:"owner", label:"Owner"}], value:d.role},
              {id:"u-pass", label:isNew?"Password":"New password (leave empty to keep)", type:"password", value:""}]},
-    {note:"Staff can run sales, stock, contacts and expenses. Only owners see payroll and change company settings."}
+    {note:"Sales: offers, deals, contacts and stock levels. Admin: also the catalogue and company settings. Owner: everything, including cost prices, money, purchasing, payroll and accounts."}
   ], function(){
     if(!val("u-name") || !val("u-email")){ toast("Name and email are required", true); return false; }
     if(isNew && val("u-pass").length<8){ toast("Password needs at least 8 characters", true); return false; }

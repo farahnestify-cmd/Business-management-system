@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureInstalled;
+use App\Http\Middleware\ManagerOnly;
 use App\Http\Middleware\OwnerOnly;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,7 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(EnsureInstalled::class);
-        $middleware->alias(['owner' => OwnerOnly::class]);
+        $middleware->alias(['owner' => OwnerOnly::class, 'manager' => ManagerOnly::class]);
         $middleware->redirectGuestsTo(fn () => route('login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -421,3 +421,6 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 
 /* "hidden" always wins over a component's own display (e.g. .btn is inline-flex). */
 [hidden]{display:none!important}
+
+/* Cost prices and margins are the owner's; other roles never get the figures, and the columns go too. */
+html:not([data-role="owner"]) .c-cost{display:none!important}

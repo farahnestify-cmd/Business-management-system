@@ -48,6 +48,18 @@ class User extends Authenticatable
         ];
     }
 
+    /** Owner and admin keep the catalogue and the company settings. */
+    public function isManager(): bool
+    {
+        return in_array($this->role, ['owner', 'admin'], true);
+    }
+
+    /** Cost prices, margins, money, purchasing and payroll are the owner's alone. */
+    public function seesCosts(): bool
+    {
+        return $this->role === 'owner';
+    }
+
     public function isOwner(): bool
     {
         return $this->role === 'owner';

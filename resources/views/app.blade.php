@@ -32,10 +32,10 @@
       <button class="nav-btn" data-view="contacts">
         <svg viewBox="0 0 20 20"><circle cx="7.5" cy="7" r="2.6"/><path d="M3 16c0-2.5 2-4.2 4.5-4.2S12 13.5 12 16"/><path d="M13 5.2a2.6 2.6 0 010 4.6M14.5 15.6c0-2 .8-3.2 2.5-3.6"/></svg><span class="label">Contacts</span><span class="nav-count" id="nav-count-contacts"></span>
       </button>
-      <button class="nav-btn" data-view="money">
+      <button class="nav-btn" data-view="money" data-need="owner">
         <svg viewBox="0 0 20 20"><path d="M3 6.5h14v9H3z"/><path d="M3 9.5h14"/><circle cx="13.5" cy="12.8" r="1.1"/></svg><span class="label">Money</span><span class="nav-count" id="nav-count-money"></span>
       </button>
-      <button class="nav-btn" data-view="team">
+      <button class="nav-btn" data-view="team" data-need="owner">
         <svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3"/><path d="M4.5 16.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/></svg><span class="label">Team</span><span class="nav-count" id="nav-count-team"></span>
       </button>
     </nav>
@@ -106,7 +106,7 @@
           </div>
           <div class="panel"><div class="table-wrap"><table>
             <thead><tr>
-              <th>Reference</th><th>Client</th><th>Stage</th><th class="num">Total</th><th class="num">Balance</th><th>Age</th><th class="num">Margin</th>
+              <th>Reference</th><th>Client</th><th>Stage</th><th class="num">Total</th><th class="num">Balance</th><th>Age</th><th class="num c-cost">Margin</th>
             </tr></thead>
             <tbody id="sales-body"></tbody>
           </table></div></div>
@@ -118,8 +118,8 @@
         <div class="figures three" id="inv-figs"></div>
         <div class="segmented" id="inv-tabs">
           <button type="button" data-t="stock" aria-pressed="true">Stock</button>
-          <button type="button" data-t="orders">Purchase orders</button>
-          <button type="button" data-t="suppliers">Suppliers</button>
+          <button type="button" data-t="orders" data-need="owner">Purchase orders</button>
+          <button type="button" data-t="suppliers" data-need="owner">Suppliers</button>
           <button type="button" data-t="deliver">To deliver</button>
         </div>
 
@@ -127,30 +127,30 @@
           <div class="section">
             <div class="section-head">
               <div><h2>Finished products</h2><p class="sub">Sold as one piece — door locks, DNAKE units, WiFi switches, accessories.</p></div>
-              <button class="btn sm" type="button" data-add="product">Add product</button>
+              <button class="btn sm" type="button" data-add="product" data-need="manager">Add product</button>
             </div>
             <div class="panel"><div class="table-wrap"><table>
-              <thead><tr><th>Product</th><th>Category</th><th class="num">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Incoming</th><th class="num">Available</th><th>Status</th></tr></thead>
+              <thead><tr><th>Product</th><th>Category</th><th class="num c-cost">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Incoming</th><th class="num">Available</th><th>Status</th></tr></thead>
               <tbody id="inv-products"></tbody>
             </table></div></div>
           </div>
           <div class="section" style="margin-top:26px">
             <div class="section-head">
               <div><h2>Bases</h2><p class="sub">The functional unit — unlasered, no finish. One base pairs with any cover in its line.</p></div>
-              <button class="btn sm" type="button" data-add="base">Add base</button>
+              <button class="btn sm" type="button" data-add="base" data-need="manager">Add base</button>
             </div>
             <div class="panel"><div class="table-wrap"><table>
-              <thead><tr><th>Base</th><th>Line</th><th class="num">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Incoming</th><th class="num">Available</th><th>Status</th></tr></thead>
+              <thead><tr><th>Base</th><th>Line</th><th class="num c-cost">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Incoming</th><th class="num">Available</th><th>Status</th></tr></thead>
               <tbody id="inv-bases"></tbody>
             </table></div></div>
           </div>
           <div class="section" style="margin-top:26px">
             <div class="section-head">
               <div><h2>Covers</h2><p class="sub">Colour and finish faceplates, counted separately from the bases they clip onto.</p></div>
-              <button class="btn sm" type="button" data-add="cover">Add cover</button>
+              <button class="btn sm" type="button" data-add="cover" data-need="manager">Add cover</button>
             </div>
             <div class="panel"><div class="table-wrap"><table>
-              <thead><tr><th>Cover</th><th>Line</th><th>Finish</th><th class="num">Add-on</th><th class="num">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Available</th><th>Status</th></tr></thead>
+              <thead><tr><th>Cover</th><th>Line</th><th>Finish</th><th class="num">Add-on</th><th class="num c-cost">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Available</th><th>Status</th></tr></thead>
               <tbody id="inv-covers"></tbody>
             </table></div></div>
           </div>
@@ -303,7 +303,7 @@
 
       <!-- ============ SETTINGS ============ -->
       <section class="view" id="view-settings" hidden>
-        <div class="section">
+        <div class="section" data-need="manager">
           <div class="section-head">
             <div><h2>Company</h2><p class="sub">These details head every quotation, agreement and invoice you print.</p></div>
           </div>
@@ -320,7 +320,7 @@
             </div>
           </div>
         </div>
-        <div class="section">
+        <div class="section" data-need="manager">
           <div class="section-head"><div><h2>The branded offer</h2><p class="sub">The cover, the opening page and the back page of the Full quotation. The Plain version uses none of this; the logo also heads every other document.</p></div></div>
           <div class="panel panel-pad">
             <div class="grid g2">
@@ -336,7 +336,7 @@
             <p class="tiny muted" style="margin-top:10px">Text is saved with the Save settings button below; images are saved as soon as you choose them.</p>
           </div>
         </div>
-        <div class="section">
+        <div class="section" data-need="manager">
           <div class="section-head"><div><h2>Document wording</h2><p class="sub">Shown at the foot of each document type.</p></div></div>
           <div class="panel panel-pad">
             <div class="grid">
@@ -346,7 +346,7 @@
             </div>
           </div>
         </div>
-        <div class="section">
+        <div class="section" data-need="manager">
           <div class="section-head"><div><h2>Thresholds</h2><p class="sub">When Today should start warning you.</p></div></div>
           <div class="panel panel-pad">
             <div class="grid g3">

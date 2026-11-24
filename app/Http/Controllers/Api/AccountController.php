@@ -21,7 +21,7 @@ class AccountController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|email|max:255|unique:users,email',
             'password' => 'required|string|min:8',
-            'role' => 'required|in:owner,staff',
+            'role' => 'required|in:owner,admin,staff',
         ]);
         $user = User::create($data);
 
@@ -34,7 +34,7 @@ class AccountController extends Controller
             'name' => 'required|string|max:255',
             'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'password' => 'nullable|string|min:8',
-            'role' => 'required|in:owner,staff',
+            'role' => 'required|in:owner,admin,staff',
         ]);
         if ($user->isOwner() && $data['role'] !== 'owner' && User::where('role', 'owner')->count() === 1) {
             return response()->json(['message' => 'There must always be at least one owner.'], 409);
