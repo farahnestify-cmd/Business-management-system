@@ -16,6 +16,7 @@ class Client extends Model
             'id' => self::sid($this->id),
             'name' => $this->name,
             'type' => $this->type,
+            'tierId' => self::sid($this->tier_id),
             'region' => $this->region,
             'discountPct' => (float) $this->discount_pct,
             'phone' => (string) $this->phone,

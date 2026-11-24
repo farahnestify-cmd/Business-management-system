@@ -241,6 +241,16 @@
             <tbody id="contacts-body"></tbody>
           </table></div></div>
         </div>
+        <div class="section">
+          <div class="section-head">
+            <div><p class="eyebrow">Price tiers</p><p class="tiny muted">Channels such as Dealer Gold or Partner Silver: the price column a contact is quoted from and the discount that comes with it.</p></div>
+            <button class="btn sm" type="button" data-add="tier" data-need="manager">Add tier</button>
+          </div>
+          <div class="panel"><div class="table-wrap"><table>
+            <thead><tr><th>Tier</th><th>Priced from</th><th class="num">Channel discount</th><th class="num">Contacts</th><th class="num">Billed this year</th><th class="num">Yearly target</th></tr></thead>
+            <tbody id="tiers-body"></tbody>
+          </table></div></div>
+        </div>
       </section>
 
       <!-- ============ MONEY ============ -->

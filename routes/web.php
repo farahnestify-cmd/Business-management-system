@@ -69,7 +69,7 @@ Route::middleware('auth')->group(function () {
             Route::delete('users/{user}', [AccountController::class, 'destroy']);
         });
 
-        $records = ['clients', 'products', 'bases', 'covers', 'suppliers', 'employees', 'services'];
+        $records = ['clients', 'products', 'bases', 'covers', 'suppliers', 'employees', 'services', 'price_tiers'];
         Route::post('{collection}', [RecordController::class, 'store'])->whereIn('collection', $records);
         Route::put('{collection}/{id}', [RecordController::class, 'update'])->whereIn('collection', $records)->whereNumber('id');
         Route::delete('{collection}/{id}', [RecordController::class, 'destroy'])->whereIn('collection', $records)->whereNumber('id');

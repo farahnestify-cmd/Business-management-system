@@ -12,6 +12,7 @@ use App\Models\Milestone;
 use App\Models\OfferSet;
 use App\Models\Payment;
 use App\Models\PayrollPayment;
+use App\Models\PriceTier;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\Service;
@@ -38,6 +39,7 @@ class RecycleBin
         'supplier' => [Supplier::class, 'Supplier'],
         'service' => [Service::class, 'Service'],
         'offer_set' => [OfferSet::class, 'Offer set'],
+        'price_tier' => [PriceTier::class, 'Price tier'],
         'employee' => [Employee::class, 'Person'],
         'expense' => [Expense::class, 'Expense'],
         'purchase_order' => [PurchaseOrder::class, 'Purchase order'],
@@ -65,6 +67,9 @@ class RecycleBin
         }
         if ($kind === 'client') {
             $payload['links']['transactions'] = Transaction::where('client_id', $model->id)->pluck('id')->all();
+        }
+        if ($kind === 'price_tier') {
+            $payload['links']['clients'] = Client::where('tier_id', $model->id)->pluck('id')->all();
         }
         if ($kind === 'employee') {
             $payload['links']['payroll_payments'] = PayrollPayment::where('employee_id', $model->id)->pluck('id')->all();
@@ -119,6 +124,9 @@ class RecycleBin
             $links = $p['links'] ?? [];
             if (! empty($links['transactions'])) {
                 Transaction::whereIn('id', $links['transactions'])->whereNull('client_id')->update(['client_id' => $id]);
+            }
+            if (! empty($links['clients'])) {
+                Client::whereIn('id', $links['clients'])->whereNull('tier_id')->update(['tier_id' => $id]);
             }
             if (! empty($links['payroll_payments'])) {
                 PayrollPayment::whereIn('id', $links['payroll_payments'])->whereNull('employee_id')->update(['employee_id' => $id]);

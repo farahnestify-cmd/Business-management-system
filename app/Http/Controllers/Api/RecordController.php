@@ -7,6 +7,7 @@ use App\Models\Base;
 use App\Models\Client;
 use App\Models\Cover;
 use App\Models\Employee;
+use App\Models\PriceTier;
 use App\Models\Product;
 use App\Models\Service;
 use App\Models\Supplier;
@@ -47,6 +48,7 @@ class RecordController extends Controller
         return match ($collection) {
             'clients' => [Client::class, 'any', $name + [
                 'type' => ['type', 'required|in:End User,Dealer,Partner'],
+                'tierId' => ['tier_id', 'nullable|integer|exists:price_tiers,id'],
                 'region' => ['region', 'required|in:West Bank,48 Region'],
                 'discountPct' => ['discount_pct', 'numeric|min:0|max:1'],
                 'phone' => ['phone', 'nullable|string|max:60'],
@@ -71,6 +73,13 @@ class RecordController extends Controller
                 'email' => ['email', 'nullable|string|max:255'],
                 'country' => ['country', 'nullable|string|max:80'],
                 'notes' => ['notes', 'nullable|string|max:5000'],
+            ]],
+            'price_tiers' => [PriceTier::class, 'manager', $name + [
+                'code' => ['code', 'nullable|string|max:20'],
+                'basis' => ['basis', 'required|in:End user,Dealer'],
+                'discountPct' => ['discount_pct', 'numeric|min:0|max:1'],
+                'targetYear' => ['target_year', 'numeric|min:0'],
+                'active' => ['active', 'boolean'],
             ]],
             'services' => [Service::class, 'manager', $name + [
                 'unit' => ['unit', 'nullable|string|max:40'],
@@ -121,7 +130,7 @@ class RecordController extends Controller
         }
 
         $kind = ['clients' => 'client', 'products' => 'product', 'bases' => 'base', 'covers' => 'cover',
-            'suppliers' => 'supplier', 'employees' => 'employee', 'services' => 'service'][$collection];
+            'suppliers' => 'supplier', 'employees' => 'employee', 'services' => 'service', 'price_tiers' => 'price_tier'][$collection];
         DB::transaction(fn () => RecycleBin::trash($kind, $model, $model->name));
 
         return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);

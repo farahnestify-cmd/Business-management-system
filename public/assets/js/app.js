@@ -15,7 +15,7 @@ var DEFAULTS = {
 var state = {
   view:"today", tab:{inventory:"stock", money:"pl"},
   filters:{sales:"open", contacts:"all", ledger:"all"},
-  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[], services:[], sets:[],
+  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[], services:[], sets:[], tiers:[],
   employees:[], payroll:[], suppliers:[], orders:[], users:[], user:null,
   settings:Object.assign({}, DEFAULTS),
   offer:{lines:[]}, ready:false, q:""
@@ -119,7 +119,7 @@ function supplierById(id){ return byId(state.suppliers,id); }
 /* Price book: dealer vs end user, per region, plus programming */
 function standardUnitPrice(item, clientType, region, service){
   if(!item) return 0;
-  var dealer = clientType==="Dealer";
+  var dealer = clientType==="Dealer";  /* a tier priced from the dealer column passes "Dealer" */
   var base = region==="West Bank"
     ? (dealer ? item.dealerPriceWB : item.endUserPriceWB)
     : (dealer ? item.dealerPrice48 : item.endUserPrice48);
@@ -376,7 +376,7 @@ function api(method, path, body){
 function reload(){
   if(loading) return loading;
   loading = api("GET", "bootstrap").then(function(d){
-    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash","services","sets"].forEach(function(k){
+    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash","services","sets","tiers"].forEach(function(k){
       state[k] = d[k] || [];
     });
     state.user = d.user;
@@ -1274,11 +1274,18 @@ function offerCtx(){
   var c=clientById($("of-client").value);
   var typeEl=document.querySelector('input[name="oftype"]:checked');
   var svcEl=document.querySelector('input[name="ofservice"]:checked');
-  return {
+  var ctx = {
     client:c, region:$("of-region").value, date:$("of-date").value||todayISO(),
     type: typeEl?typeEl.value:"Direct", service: svcEl?svcEl.value:"With Programming",
-    clientType: c?c.type:"End User", discount: c?num(c.discountPct):0
+    clientType: c?c.type:"End User", discount: c?num(c.discountPct):0,
+    tier: c?tierById(c.tierId):null
   };
+  /* A tier decides the price column; its discount stacks with the contact's own extra discount. */
+  if(ctx.tier){
+    ctx.clientType = ctx.tier.basis==="Dealer" ? "Dealer" : "End User";
+    ctx.discount = 1-(1-num(ctx.tier.discountPct))*(1-ctx.discount);
+  }
+  return ctx;
 }
 function renderComposer(){
   var ctx=offerCtx();
@@ -1381,7 +1388,7 @@ function renderComposer(){
   var paid=state.offer.editId ? 0 : valNum("of-paid");
   $("of-totals").innerHTML =
     '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(subtotal)+'</span></div>'+
-    (ctx.discount>0 ? '<div class="r"><span class="l">Client discount applied</span><span class="mono">'+pct(ctx.discount)+'</span></div>' : '')+
+    (ctx.discount>0 ? '<div class="r"><span class="l">'+(ctx.tier?esc(ctx.tier.name)+' discount applied':'Client discount applied')+'</span><span class="mono">'+pct(ctx.discount)+'</span></div>' : '')+
     (cogs>0 ? '<div class="r c-cost"><span class="l">Margin on this offer</span><span class="mono">'+money(subtotal-cogs)+' · '+pct((subtotal-cogs)/(subtotal||1),0)+'</span></div>' : '')+
     (vat>0 ? '<div class="r"><span class="l">VAT '+num(state.settings.vatPct)+'%</span><span class="mono">'+money(vat)+'</span></div>' : '')+
     '<div class="r grand"><span class="l">Total</span><span class="v">'+money(subtotal+vat)+'</span></div>'+
@@ -1744,6 +1751,7 @@ function wireAddButtons(){
       if(k==="supplier") editSupplier(null);
       if(k==="service") editService(null);
       if(k==="client") editClient(null);
+      if(k==="tier") editTier(null);
       if(k==="expense") editExpense(null);
       if(k==="employee") editEmployee(null);
     });
@@ -2112,7 +2120,52 @@ function editSupplier(s){
 /* ============================================================
    20. CONTACTS
    ============================================================ */
+function tierById(id){ return id ? byId(state.tiers||[], id) : null; }
+function tierLabel(c){ var t=tierById(c.tierId); return t ? (t.code||t.name) : ""; }
+function effectiveDiscount(c){ var t=tierById(c.tierId); return 1-(1-(t?num(t.discountPct):0))*(1-num(c.discountPct)); }
+function tierYearBilled(tierId){
+  var yr=todayISO().slice(0,4);
+  var ids=state.clients.filter(function(c){ return c.tierId===tierId; }).map(function(c){ return c.id; });
+  return sum(state.transactions.filter(function(t){
+    return ids.indexOf(t.clientId)>=0 && isLive(t) && isBilled(t) && String(txRecognisedDate(t)||"").slice(0,4)===yr;
+  }), txTotal);
+}
+function renderTiers(){
+  var rows=state.tiers||[];
+  $("tiers-body").innerHTML = rows.length ? rows.map(function(t){
+    var n=state.clients.filter(function(c){ return c.tierId===t.id; }).length, billed=tierYearBilled(t.id);
+    var tgt=num(t.targetYear);
+    return '<tr class="clickable" data-tier="'+t.id+'"><td class="strong">'+esc(t.name)+(t.code?' <span class="pill neutral">'+esc(t.code)+'</span>':'')+
+      (t.active?'':' <span class="pill neutral">inactive</span>')+'</td>'+
+      '<td class="tiny muted">'+esc(t.basis==="Dealer"?"Dealer prices":"End-user prices")+'</td>'+
+      '<td class="num">'+(num(t.discountPct)>0?pct(t.discountPct,1):'<span class="faint">—</span>')+'</td>'+
+      '<td class="num">'+n+'</td><td class="num">'+money0(billed)+'</td>'+
+      '<td class="num">'+(tgt>0?money0(tgt)+' <span class="tiny faint">('+Math.round(billed/tgt*100)+'%)</span>':'<span class="faint">—</span>')+'</td></tr>';
+  }).join("") : emptyRow(6,"No tiers yet. Without one, a contact is priced by its type.");
+  $("tiers-body").querySelectorAll("[data-tier]").forEach(function(r){
+    r.addEventListener("click", function(){ if(isManager()) editTier(tierById(r.dataset.tier)); });
+  });
+}
+function editTier(t){
+  var isNew=!t; var d=t||{name:"", code:"", basis:"Dealer", discountPct:0, targetYear:0, active:true};
+  openForm((isNew?"Add":"Edit")+" price tier", [
+    {fields:[{id:"tr-name", label:"Tier name", value:d.name, placeholder:"Dealer Gold"},
+             {id:"tr-code", label:"Short code", value:d.code, placeholder:"DG"}]},
+    {fields:[{id:"tr-basis", label:"Priced from", type:"select", options:[{value:"End user",label:"End-user prices"},{value:"Dealer",label:"Dealer prices"}], value:d.basis},
+             {id:"tr-disc", label:"Channel discount (%)", type:"number", step:"0.1", min:0, value:r2(num(d.discountPct)*100)}]},
+    {fields:[{id:"tr-target", label:"Yearly turnover target ($)", type:"number", step:"1", min:0, value:num(d.targetYear)},
+             {id:"tr-active", label:"Status", type:"select", options:[{value:"1",label:"Active"},{value:"0",label:"Inactive (hidden on contacts)"}], value:d.active?"1":"0"}]},
+    {note:"Contacts in this tier are quoted from the chosen price column, less the channel discount. A contact's own extra discount stacks on top."}
+  ], function(){
+    if(!val("tr-name")){ toast("Tier name is required", true); return false; }
+    var disc=valNum("tr-disc"); if(disc<0||disc>100){ toast("Discount must be between 0 and 100%", true); return false; }
+    save("price_tiers", isNew?null:t.id, {name:val("tr-name"), code:val("tr-code"), basis:val("tr-basis"),
+      discountPct:disc/100, targetYear:valNum("tr-target"), active:val("tr-active")==="1"},
+      function(){ toast("Tier saved"); });
+  }, isNew ? null : function(){ remove("price_tiers", t.id, t.name); });
+}
 function renderContacts(){
+  renderTiers();
   var dealers=state.clients.filter(function(c){ return c.type==="Dealer"; });
   var owing=state.clients.map(function(c){ return clientStats(c).outstanding; }).filter(function(v){ return v>0.004; });
   $("contacts-figs").innerHTML =
@@ -2134,7 +2187,7 @@ function renderContacts(){
       '<td class="strong">'+esc(c.name)+(c.phone?'<div class="tiny faint mono">'+esc(c.phone)+'</div>':'')+'</td>'+
       '<td><span class="pill '+(c.type==="Dealer"?"accent":(c.type==="Partner"?"info":"neutral"))+'">'+esc(c.type||"")+'</span></td>'+
       '<td class="tiny muted">'+esc(c.region||"")+'</td>'+
-      '<td class="num">'+(num(c.discountPct)>0?pct(c.discountPct,0):'<span class="faint">—</span>')+'</td>'+
+      '<td class="num">'+(tierLabel(c)?'<span class="pill info">'+esc(tierLabel(c))+'</span> ':'')+(effectiveDiscount(c)>0.00001?pct(effectiveDiscount(c),1):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+st.deals+'</td><td class="num">'+money0(st.billed)+'</td>'+
       '<td class="num '+(st.outstanding>0.004?"strong":"")+'">'+(st.outstanding>0.004?money(st.outstanding):'<span class="faint">—</span>')+'</td>'+
       '<td class="tiny muted">'+(st.last?fmtDate(txRecognisedDate(st.last)):"—")+'</td></tr>';
@@ -2153,7 +2206,9 @@ function openContact(id){
     '<div class="grid g3">'+
       '<div class="kv"><span class="k">Type</span><span class="v">'+esc(c.type||"")+'</span></div>'+
       '<div class="kv"><span class="k">Region</span><span class="v">'+esc(c.region||"")+'</span></div>'+
-      '<div class="kv"><span class="k">Standing discount</span><span class="v">'+pct(c.discountPct||0,1)+'</span></div>'+
+      '<div class="kv"><span class="k">Price tier</span><span class="v">'+(tierById(c.tierId)?esc(tierById(c.tierId).name)+' · '+(tierById(c.tierId).basis==="Dealer"?"dealer prices":"end-user prices"):"— (priced by type)")+'</span></div>'+
+      '<div class="kv"><span class="k">Discount</span><span class="v">'+pct(effectiveDiscount(c),1)+
+        (tierById(c.tierId)&&num(c.discountPct)>0?' <span class="tiny faint">('+pct(tierById(c.tierId).discountPct,1)+' tier + '+pct(c.discountPct,1)+' extra)</span>':'')+'</span></div>'+
       '<div class="kv"><span class="k">Phone</span><span class="v">'+esc(c.phone||"—")+'</span></div>'+
       '<div class="kv"><span class="k">Deals</span><span class="v">'+st.deals+'</span></div>'+
       '<div class="kv"><span class="k">Last activity</span><span class="v">'+(st.last?fmtDate(txRecognisedDate(st.last)):"—")+'</span></div>'+
@@ -2180,20 +2235,23 @@ function openContact(id){
   });
 }
 function editClient(c){
-  var isNew=!c; var d=c||{name:"", type:"End User", region:"West Bank", discountPct:0, phone:"", email:"", notes:""};
+  var isNew=!c; var d=c||{name:"", type:"End User", region:"West Bank", discountPct:0, phone:"", email:"", notes:"", tierId:""};
+  var tiers=[{value:"",label:"None — priced by type"}].concat((state.tiers||[]).filter(function(t){ return t.active || t.id===d.tierId; })
+    .map(function(t){ return {value:t.id, label:t.name+" · "+(t.basis==="Dealer"?"dealer":"end-user")+" prices"+(num(t.discountPct)>0?" − "+pct(t.discountPct,1):"")}; }));
   openForm((isNew?"Add":"Edit")+" contact", [
     {fields:[{id:"c-name", label:"Name", value:d.name},
              {id:"c-type", label:"Type", type:"select", options:["End User","Dealer","Partner"], value:d.type},
              {id:"c-region", label:"Region", type:"select", options:["West Bank","48 Region"], value:d.region}]},
-    {fields:[{id:"c-disc", label:"Standing discount (%)", type:"number", step:"0.1", value:(num(d.discountPct)*100)},
-             {id:"c-phone", label:"Phone", value:d.phone},
+    {fields:[{id:"c-tier", label:"Price tier", type:"select", options:tiers, value:d.tierId||""},
+             {id:"c-disc", label:"Extra discount on top (%)", type:"number", step:"0.1", value:r2(num(d.discountPct)*100)}]},
+    {fields:[{id:"c-phone", label:"Phone", value:d.phone},
              {id:"c-email", label:"Email", value:d.email}]},
     {fields:[{id:"c-notes", label:"Notes", type:"textarea", value:d.notes}]},
-    {note:"Type and region decide which price column the offer builder uses."}
+    {note:"Region and the tier (or the type, without a tier) decide which price column the offer builder uses."}
   ], function(){
     if(!val("c-name")){ toast("Name is required", true); return false; }
     save("clients", isNew?null:c.id, {name:val("c-name"), type:val("c-type"), region:val("c-region"),
-      discountPct:valNum("c-disc")/100, phone:val("c-phone"), email:val("c-email"), notes:val("c-notes")},
+      tierId:val("c-tier")?Number(val("c-tier")):null, discountPct:valNum("c-disc")/100, phone:val("c-phone"), email:val("c-email"), notes:val("c-notes")},
       function(){ toast("Contact saved"); });
   }, isNew ? null : function(){ remove("clients", c.id, c.name); });
 }
@@ -2569,7 +2627,7 @@ function workbookSheets(){
     ["Payment schedule", [].concat.apply([], state.transactions.map(function(t){ return (t.milestones||[]).map(function(m){
       return {"Reference":t.refNo, "Client":t.clientName, "Stage":m.label, "Due":m.dueDate||"", "Amount":r2(m.amount), "Paid":m.paid ? (m.paidDate||"yes") : ""}; }); }))],
     ["Contacts", state.clients.map(function(c){ var st=clientStats(c);
-      return {"Name":c.name, "Type":c.type, "Region":c.region, "Discount %":r2(num(c.discountPct)*100), "Phone":c.phone, "Email":c.email,
+      return {"Name":c.name, "Type":c.type, "Region":c.region, "Tier":tierLabel(c), "Extra discount %":r2(num(c.discountPct)*100), "Phone":c.phone, "Email":c.email,
         "Deals":st.deals, "Billed":r2(st.billed), "Paid":r2(st.paid), "Outstanding":r2(st.outstanding)}; })],
     ["Stock", stockRows],
     ["Deliveries", state.deliveries.map(function(d){ var t=byId(state.transactions,d.transactionId)||{};

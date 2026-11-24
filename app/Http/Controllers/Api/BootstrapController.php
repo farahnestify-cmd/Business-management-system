@@ -13,6 +13,7 @@ use App\Models\Employee;
 use App\Models\Expense;
 use App\Models\OfferSet;
 use App\Models\PayrollPayment;
+use App\Models\PriceTier;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\Service;
@@ -54,6 +55,7 @@ class BootstrapController extends Controller
             'transactions' => $deals,
             'services' => $api(Service::orderBy('name')->get()),
             'sets' => $api(OfferSet::orderBy('name')->get()),
+            'tiers' => $api(PriceTier::orderBy('name')->get()),
             'deliveries' => $api(Delivery::with(['line', 'user'])->orderByDesc('delivered_on')->orderByDesc('id')->get()),
             // Money, purchasing, salaries, accounts and the bin are the owner's.
             'expenses' => $owner ? $api(Expense::orderByDesc('date')->orderByDesc('id')->get()) : [],
