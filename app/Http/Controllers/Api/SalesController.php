@@ -57,6 +57,9 @@ class SalesController extends Controller
                 'vat_pct' => $settings->vat_pct,
                 'quotation_date' => $date->toDateString(),
                 'due_date' => $data['dueDate'] ?? null,
+                'site' => $data['site'] ?? null,
+                'sold_by' => $data['soldBy'] ?? null,
+                'created_by' => auth()->id(),
                 'notes' => $data['notes'] ?? null,
             ]);
             $tx->items()->createMany($items);
@@ -109,6 +112,8 @@ class SalesController extends Controller
                 'region' => $data['region'], 'service_type' => $data['serviceType'],
                 'quotation_date' => Carbon::parse($data['date'])->toDateString(),
                 'due_date' => $data['dueDate'] ?? null,
+                'site' => $data['site'] ?? null,
+                'sold_by' => $data['soldBy'] ?? null,
                 'notes' => $data['notes'] ?? null,
             ]);
             $transaction->items()->delete();
@@ -365,6 +370,8 @@ class SalesController extends Controller
             'date' => 'required|date',
             'dueDate' => 'nullable|date',
             'notes' => 'nullable|string|max:5000',
+            'site' => 'nullable|string|max:255',
+            'soldBy' => 'nullable|string|max:120',
             'lines' => 'required|array|min:1',
             'lines.*.kind' => 'required|in:product,combo',
             'lines.*.productId' => 'nullable|integer',

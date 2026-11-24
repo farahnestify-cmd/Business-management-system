@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Transaction extends Model
@@ -28,6 +29,11 @@ class Transaction extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(Payment::class)->orderBy('date')->orderBy('id');
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function milestones(): HasMany
@@ -75,6 +81,12 @@ class Transaction extends Model
             'deliveredDate' => self::d($this->delivered_date),
             'dueDate' => self::d($this->due_date),
             'notes' => (string) $this->notes,
+            'site' => (string) $this->site,
+            'soldBy' => (string) $this->sold_by,
+            'createdBy' => self::sid($this->created_by),
+            'createdByName' => (string) $this->creator?->name,
+            // Written from a staff (sales team) account rather than by the office.
+            'fromSales' => $this->creator?->role === 'staff',
             'createdAt' => optional($this->created_at)->toIso8601String(),
         ];
     }

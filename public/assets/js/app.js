@@ -533,7 +533,7 @@ document.addEventListener("keydown", function(e){
 function searchIndex(){
   var out=[];
   state.transactions.forEach(function(t){
-    out.push({label:t.clientName||"—", meta:t.refNo, type:t.status, go:function(){ setView("sales"); openTx(t.id); }});
+    out.push({label:t.clientName||"—", meta:t.refNo+(t.site ? " · "+t.site : "")+(t.soldBy ? " · "+t.soldBy : ""), type:t.status, go:function(){ setView("sales"); openTx(t.id); }});
   });
   state.clients.forEach(function(c){
     out.push({label:c.name, meta:c.type+" · "+c.region, type:"Contact", go:function(){ setView("contacts"); openContact(c.id); }});
@@ -787,8 +787,15 @@ function renderToday(){
 /* ============================================================
    16. SALES
    ============================================================ */
+function myName(){ return state.user ? String(state.user.name||"").trim().toLowerCase() : ""; }
 function salesRows(){
   var f=state.filters.sales, rows=state.transactions;
+  if(f==="mine"){
+    /* Sold by me, or written from my account. */
+    var me=myName();
+    return rows.filter(function(t){ return isLive(t) && ((me && (t.soldBy||"").trim().toLowerCase()===me) || (state.user && t.createdBy===state.user.id)); });
+  }
+  if(f==="fromsales") return rows.filter(function(t){ return isLive(t) && t.fromSales; });
   if(f==="open") return rows.filter(function(t){ return isLive(t) && t.status!=="Delivered"; });
   if(f==="unpaid") return rows.filter(function(t){ return isLive(t) && txBalance(t)>0.004; });
   if(f==="all") return rows;
@@ -809,13 +816,16 @@ function renderSales(){
     figure("Average margin", withCost.length ? pct(marginPct,0) : "—");
 
   var rows=salesRows();
-  $("sales-count").textContent = rows.length + (rows.length===1?" deal":" deals");
+  $("sales-count").textContent = rows.length + (rows.length===1?" deal":" deals") +
+    (state.filters.sales==="mine" ? " sold by you or written from your account" : "") +
+    (state.filters.sales==="fromsales" ? " written by the sales team (staff accounts)" : "");
   $("sales-body").innerHTML = rows.length ? rows.map(function(t){
     var bal=txBalance(t), age=txAge(t), overdue = bal>0.004 && isBilled(t) && age!=null && age>num(state.settings.overdueDays);
     var m = txHasCost(t) ? pct(txMargin(t)/(txSubtotal(t)||1),0) : '<span class="faint">—</span>';
     return '<tr class="clickable" data-tx="'+t.id+'">'+
       '<td class="mono">'+esc(t.refNo)+'<div class="tiny faint">'+fmtDate(txDocDate(t))+'</div></td>'+
-      '<td class="strong">'+esc(t.clientName||"—")+'<div class="tiny faint">'+esc(t.region||"")+' · '+esc(t.clientType||"")+'</div></td>'+
+      '<td class="strong">'+esc(t.clientName||"—")+'<div class="tiny faint">'+esc(t.region||"")+' · '+esc(t.clientType||"")+
+        (t.soldBy ? ' · '+esc(t.soldBy) : '')+'</div>'+(t.site ? '<div class="tiny muted">'+esc(t.site)+'</div>' : '')+'</td>'+
       '<td>'+dealStage(t)+'</td>'+
       '<td class="num">'+money(txTotal(t))+'</td>'+
       '<td class="num">'+balanceCell(t)+'</td>'+
@@ -861,6 +871,9 @@ function openTx(id){
       '<div class="kv"><span class="k">Programming</span><span class="v">'+esc(t.serviceType==="With Programming"?"Included":"Supply only")+'</span></div>'+
       '<div class="kv"><span class="k">Client</span><span class="v">'+esc(t.clientName||"")+'</span></div>'+
       '<div class="kv"><span class="k">Region</span><span class="v">'+esc(t.region||"")+'</span></div>'+
+      (t.site ? '<div class="kv"><span class="k">Site</span><span class="v">'+esc(t.site)+'</span></div>' : '')+
+      (t.soldBy ? '<div class="kv"><span class="k">Sold by</span><span class="v">'+esc(t.soldBy)+'</span></div>' : '')+
+      (t.createdByName && t.createdByName!==t.soldBy ? '<div class="kv"><span class="k">Written by</span><span class="v">'+esc(t.createdByName)+'</span></div>' : '')+
       '<div class="kv"><span class="k">Dated</span><span class="v">'+fmtDate(txDocDate(t))+'</span></div>'+
     '</div>'+
     '<div class="panel"><div class="table-wrap"><table>'+
@@ -983,6 +996,14 @@ function openComposer(tx){
   $("of-date").value = editing ? txDocDate(editing) : todayISO();
   $("of-paid").value=0;
   $("of-notes").value = editing ? (editing.notes||"") : "";
+  $("of-site").value = editing ? (editing.site||"") : "";
+  /* New offers are stamped with whoever writes them; anyone can be named instead. */
+  $("of-seller").value = editing ? (editing.soldBy||"") : (state.user ? state.user.name : "");
+  var names={};
+  state.transactions.forEach(function(t){ if(t.soldBy) names[t.soldBy]=1; });
+  (state.users||[]).forEach(function(u){ names[u.name]=1; });
+  if(state.user) names[state.user.name]=1;
+  $("seller-list").innerHTML = Object.keys(names).sort().map(function(n){ return '<option value="'+esc(n)+'">'; }).join("");
   $("of-due").value = editing ? (editing.dueDate||"") : "";
   $("composer").hidden=false;
   renderComposer();
@@ -1192,6 +1213,7 @@ $("of-save").addEventListener("click", function(){
   var data={
     clientId:ctx.client.id, region:ctx.region, dealType:ctx.type, serviceType:ctx.service,
     date:ctx.date, dueDate:val("of-due") || null, notes:val("of-notes"),
+    site:val("of-site"), soldBy:val("of-seller"),
     paid:paid, method:val("of-method"),
     milestones:(state.offer.milestones||[]).filter(function(m){ return num(m.amount)>0; })
       .map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||null}; }),
@@ -1249,7 +1271,7 @@ function openDoc(t, kind){
     '</div>'+
     '<div class="d-meta">'+
       '<div><div class="k">Prepared for</div><div class="v">'+esc(t.clientName||"")+(client.phone?'<br>'+esc(client.phone):"")+'</div></div>'+
-      '<div><div class="k">Region</div><div class="v">'+esc(t.region||"")+'</div></div>'+
+      '<div><div class="k">'+(t.site ? "Site" : "Region")+'</div><div class="v">'+esc(t.site||t.region||"")+'</div></div>'+
       '<div><div class="k">Scope</div><div class="v">'+esc(t.serviceType==="With Programming"?"Supply and programming":"Supply only")+'</div></div>'+
       '<div><div class="k">'+(kind==="Quotation"?"Valid until":"Reference")+'</div><div class="v">'+
         (kind==="Quotation" ? fmtDate(addDays(txDocDate(t), num(s.validityDays))) : esc(t.refNo))+'</div></div>'+

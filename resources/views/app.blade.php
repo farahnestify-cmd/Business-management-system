@@ -92,12 +92,15 @@
           <div class="section-head">
             <div class="segmented" id="sales-filter">
               <button type="button" data-f="open" aria-pressed="true">Open</button>
+              <button type="button" data-f="mine">Mine</button>
+              <button type="button" data-f="fromsales">From sales</button>
               <button type="button" data-f="all">All</button>
               <button type="button" data-f="Quotation">Quotations</button>
               <button type="button" data-f="Agreement">Agreements</button>
               <button type="button" data-f="Invoiced">Invoiced</button>
               <button type="button" data-f="Delivered">Delivered</button>
               <button type="button" data-f="unpaid">Owes money</button>
+              <button type="button" data-f="Cancelled">Cancelled</button>
             </div>
             <span class="tiny faint" id="sales-count"></span>
           </div>
@@ -414,6 +417,10 @@
         <div class="field" id="of-paid-wrap"><label for="of-paid">Paid now</label><input id="of-paid" type="number" min="0" step="1" value="0" class="mono"></div>
         <div class="field" id="of-method-wrap"><label for="of-method">Method</label><select id="of-method"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>
         <div class="field"><label for="of-due">Balance due by</label><input id="of-due" type="date" class="mono"></div>
+      </div>
+      <div class="grid g2">
+        <div class="field"><label for="of-site">Site or project</label><input id="of-site" type="text" placeholder="Villa 12, Rawabi"></div>
+        <div class="field"><label for="of-seller">Sold by</label><input id="of-seller" type="text" list="seller-list" placeholder="Who is handling this" autocomplete="off"><datalist id="seller-list"></datalist></div>
       </div>
       <div class="field"><label for="of-notes">Notes on the offer</label><input id="of-notes" type="text" placeholder="Scope, floors covered, delivery expectations…"></div>
     </div>
