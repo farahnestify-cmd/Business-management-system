@@ -13,6 +13,7 @@ use App\Models\Payment;
 use App\Models\PayrollPayment;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
+use App\Models\Service;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\User;
@@ -34,6 +35,7 @@ class RecycleBin
         'base' => [Base::class, 'Base'],
         'cover' => [Cover::class, 'Cover'],
         'supplier' => [Supplier::class, 'Supplier'],
+        'service' => [Service::class, 'Service'],
         'employee' => [Employee::class, 'Person'],
         'expense' => [Expense::class, 'Expense'],
         'purchase_order' => [PurchaseOrder::class, 'Purchase order'],

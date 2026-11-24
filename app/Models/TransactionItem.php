@@ -12,6 +12,11 @@ class TransactionItem extends Model
 
     public function remaining(): int
     {
+        // Labour is not taken off a shelf, so it never waits for delivery.
+        if ($this->kind === 'service') {
+            return 0;
+        }
+
         return max(0, $this->qty - (int) $this->delivered_qty);
     }
 
@@ -26,7 +31,10 @@ class TransactionItem extends Model
             'unitPrice' => (float) $this->unit_price,
             'costSnapshot' => (float) $this->cost_snapshot,
         ];
-        if ($this->kind === 'combo') {
+        if ($this->kind === 'service') {
+            $row['serviceId'] = self::sid($this->service_id);
+            $row['unit'] = (string) $this->unit;
+        } elseif ($this->kind === 'combo') {
             $row['baseId'] = self::sid($this->base_id);
             $row['coverId'] = self::sid($this->cover_id);
         } else {

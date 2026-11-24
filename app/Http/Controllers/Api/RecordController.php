@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\Cover;
 use App\Models\Employee;
 use App\Models\Product;
+use App\Models\Service;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\TransactionItem;
@@ -71,6 +72,11 @@ class RecordController extends Controller
                 'country' => ['country', 'nullable|string|max:80'],
                 'notes' => ['notes', 'nullable|string|max:5000'],
             ]],
+            'services' => [Service::class, 'manager', $name + [
+                'unit' => ['unit', 'nullable|string|max:40'],
+                'rate' => ['rate', 'numeric|min:0'],
+                'active' => ['active', 'boolean'],
+            ]],
             'employees' => [Employee::class, 'owner', $name + [
                 'role' => ['role', 'nullable|string|max:120'],
                 'monthlySalary' => ['monthly_salary', 'numeric|min:0'],
@@ -115,7 +121,7 @@ class RecordController extends Controller
         }
 
         $kind = ['clients' => 'client', 'products' => 'product', 'bases' => 'base', 'covers' => 'cover',
-            'suppliers' => 'supplier', 'employees' => 'employee'][$collection];
+            'suppliers' => 'supplier', 'employees' => 'employee', 'services' => 'service'][$collection];
         DB::transaction(fn () => RecycleBin::trash($kind, $model, $model->name));
 
         return response()->json(['ok' => true]);

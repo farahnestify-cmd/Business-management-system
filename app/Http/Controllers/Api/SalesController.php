@@ -11,6 +11,7 @@ use App\Models\Delivery;
 use App\Models\Milestone;
 use App\Models\Payment;
 use App\Models\Product;
+use App\Models\Service;
 use App\Models\Transaction;
 use App\Support\RecycleBin;
 use Illuminate\Http\Request;
@@ -374,7 +375,10 @@ class SalesController extends Controller
             'site' => 'nullable|string|max:255',
             'soldBy' => 'nullable|string|max:120',
             'lines' => 'required|array|min:1',
-            'lines.*.kind' => 'required|in:product,combo',
+            'lines.*.kind' => 'required|in:product,combo,service',
+            'lines.*.serviceId' => 'nullable|integer',
+            'lines.*.name' => 'nullable|string|max:255',
+            'lines.*.unit' => 'nullable|string|max:40',
             'lines.*.productId' => 'nullable|integer',
             'lines.*.baseId' => 'nullable|integer',
             'lines.*.coverId' => 'nullable|integer',
@@ -389,6 +393,23 @@ class SalesController extends Controller
     {
         $items = [];
         foreach ($lines as $i => $line) {
+            if ($line['kind'] === 'service') {
+                // A listed service, or one typed in for this offer only.
+                $service = ! empty($line['serviceId']) ? Service::find($line['serviceId']) : null;
+                $name = trim($line['name'] ?? '') ?: $service?->name;
+                if (! $name) {
+                    throw ValidationException::withMessages(["lines.$i" => 'Say what the work is on every service line.']);
+                }
+                $items[] = [
+                    'kind' => 'service', 'service_id' => $service?->id, 'product_id' => null, 'base_id' => null, 'cover_id' => null,
+                    'name' => $name, 'unit' => ($line['unit'] ?? null) ?: $service?->unit, 'cost_snapshot' => 0,
+                    'qty' => (int) $line['qty'],
+                    'unit_price' => round((float) $line['unitPrice'], 2),
+                    'standard_price' => round((float) ($line['standardPrice'] ?? 0), 2),
+                ];
+
+                continue;
+            }
             if ($line['kind'] === 'combo') {
                 $base = Base::find($line['baseId'] ?? 0);
                 $cover = Cover::find($line['coverId'] ?? 0);

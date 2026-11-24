@@ -121,6 +121,7 @@
           <button type="button" data-t="orders" data-need="owner">Purchase orders</button>
           <button type="button" data-t="suppliers" data-need="owner">Suppliers</button>
           <button type="button" data-t="deliver">To deliver</button>
+          <button type="button" data-t="services">Services</button>
         </div>
 
         <div id="inv-pane-stock">
@@ -165,6 +166,19 @@
             <div class="panel"><div class="table-wrap"><table>
               <thead><tr><th>Order</th><th>Supplier</th><th>Stage</th><th>Ordered</th><th>Expected</th><th class="num">Items</th><th class="num">Cost</th></tr></thead>
               <tbody id="po-body"></tbody>
+            </table></div></div>
+          </div>
+        </div>
+
+        <div id="inv-pane-services" hidden>
+          <div class="section">
+            <div class="section-head">
+              <div><h2>Labour and services</h2><p class="sub">Installation, programming, site visits… charged per hour, visit or point. They go on offers like items but carry no stock and no cost of goods.</p></div>
+              <button class="btn sm" type="button" data-add="service" data-need="manager">Add service</button>
+            </div>
+            <div class="panel"><div class="table-wrap"><table>
+              <thead><tr><th>Service</th><th>Charged per</th><th class="num">Rate</th><th class="num">On deals</th><th>Status</th></tr></thead>
+              <tbody id="svc-body"></tbody>
             </table></div></div>
           </div>
         </div>

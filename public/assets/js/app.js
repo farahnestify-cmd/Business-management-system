@@ -15,7 +15,7 @@ var DEFAULTS = {
 var state = {
   view:"today", tab:{inventory:"stock", money:"pl"},
   filters:{sales:"open", contacts:"all", ledger:"all"},
-  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[],
+  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[], services:[],
   employees:[], payroll:[], suppliers:[], orders:[], users:[], user:null,
   settings:Object.assign({}, DEFAULTS),
   offer:{lines:[]}, ready:false, q:""
@@ -115,7 +115,9 @@ function standardUnitPrice(item, clientType, region, service){
 }
 function itemCost(item){ return item ? num(item.cost!=null ? item.cost : item.baseCost) : 0; }
 
+function serviceById(id){ return byId(state.services||[], id); }
 function lineStandard(line, ctx){
+  if(line.kind==="service"){ var sv=serviceById(line.serviceId); return sv ? num(sv.rate) : num(line.unitPrice); }
   if(line.kind==="combo"){
     var b=baseById(line.baseId), c=coverById(line.coverId);
     if(!b) return 0;
@@ -124,10 +126,12 @@ function lineStandard(line, ctx){
   return standardUnitPrice(productById(line.productId), ctx.clientType, ctx.region, ctx.service);
 }
 function lineCost(line){
+  if(line.kind==="service") return 0; /* labour: no stock, no cost of goods */
   if(line.kind==="combo") return itemCost(baseById(line.baseId)) + itemCost(coverById(line.coverId));
   return itemCost(productById(line.productId));
 }
 function lineName(line){
+  if(line.kind==="service") return line.name || "Service";
   if(line.kind==="combo"){
     var b=baseById(line.baseId), c=coverById(line.coverId);
     if(!b) return "";
@@ -136,7 +140,10 @@ function lineName(line){
   var p=productById(line.productId);
   return p ? p.name : "";
 }
-function lineReady(line){ return line.kind==="combo" ? !!(line.baseId && line.coverId) : !!line.productId; }
+function lineReady(line){
+  if(line.kind==="service") return !!(line.name||"").trim();
+  return line.kind==="combo" ? !!(line.baseId && line.coverId) : !!line.productId;
+}
 
 /* ============================================================
    5. TRANSACTION MATHS
@@ -200,7 +207,7 @@ function incomingFor(kind, id){
   return total;
 }
 function availableOf(kind, item){ return num(item.stockOnHand) - reservedFor(kind, item.id); }
-function lineLeft(li){ return Math.max(0, num(li.qty)-num(li.deliveredQty)); }
+function lineLeft(li){ return li.kind==="service" ? 0 : Math.max(0, num(li.qty)-num(li.deliveredQty)); }
 function deliveredSome(t){ return (t.lineItems||[]).some(function(li){ return num(li.deliveredQty)>0; }); }
 /* What a delivery would hand over now and what would still wait for stock.
    Same rule as the server: each line takes what the shelf has, a base + cover
@@ -346,7 +353,7 @@ function api(method, path, body){
 function reload(){
   if(loading) return loading;
   loading = api("GET", "bootstrap").then(function(d){
-    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash"].forEach(function(k){
+    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash","services"].forEach(function(k){
       state[k] = d[k] || [];
     });
     state.user = d.user;
@@ -405,7 +412,7 @@ function applyRole(){
   $("settings-link").textContent = isManager() ? "Company settings" : "My account";
   if(!isOwner() && (state.tab.inventory==="orders" || state.tab.inventory==="suppliers")){
     state.tab.inventory="stock";
-    ["stock","orders","suppliers","deliver"].forEach(function(k){ $("inv-pane-"+k).hidden = k!=="stock"; });
+    ["stock","orders","suppliers","deliver","services"].forEach(function(k){ $("inv-pane-"+k).hidden = k!=="stock"; });
     $("inv-tabs").querySelectorAll("button").forEach(function(b){ b.setAttribute("aria-pressed", String(b.dataset.t==="stock")); });
   }
   if(!isOwner() && (state.view==="money" || state.view==="team")) setView("today");
@@ -441,6 +448,7 @@ function syncInventoryAction(){
   var pa=$("primary-action");
   if(state.tab.inventory==="orders"){ pa.textContent="New purchase order"; pa.onclick=function(){ editOrder(null); }; }
   else if(state.tab.inventory==="suppliers"){ pa.textContent="Add supplier"; pa.onclick=function(){ editSupplier(null); }; }
+  else if(state.tab.inventory==="services"){ pa.textContent="Add service"; pa.onclick=function(){ editService(null); }; }
   else { pa.textContent="Add product"; pa.onclick=function(){ editStock("product", null); }; }
   /* The catalogue is kept by owners and admins. */
   if(state.user && !isManager() && state.tab.inventory!=="orders" && state.tab.inventory!=="suppliers") pa.hidden=true;
@@ -476,6 +484,7 @@ wireSegmented("inv-tabs", function(v){
   $("inv-pane-orders").hidden = v!=="orders";
   $("inv-pane-suppliers").hidden = v!=="suppliers";
   $("inv-pane-deliver").hidden = v!=="deliver";
+  $("inv-pane-services").hidden = v!=="services";
   syncInventoryAction(); renderInventory();
 });
 wireSegmented("money-tabs", function(v){
@@ -891,8 +900,8 @@ function openTx(id){
     var unitCost = li.costSnapshot!=null ? num(li.costSnapshot) : lineCost(li);
     var lineMargin = num(li.qty)*(num(li.unitPrice)-unitCost);
     var left=lineLeft(li);
-    return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td>'+
-      (showDelivered ? '<td class="num">'+(left>0 ? '<span style="color:var(--warn)">'+num(li.deliveredQty)+'</span>' : num(li.deliveredQty))+'</td>' : '')+
+    return '<tr><td>'+esc(li.name)+(li.kind==="service" ? '<div class="tiny faint">labour · no stock</div>' : '')+'</td><td class="num">'+num(li.qty)+(li.unit ? ' <span class="tiny faint">'+esc(li.unit)+'</span>' : '')+'</td>'+
+      (showDelivered ? '<td class="num">'+(li.kind==="service" ? '<span class="faint">—</span>' : (left>0 ? '<span style="color:var(--warn)">'+num(li.deliveredQty)+'</span>' : num(li.deliveredQty)))+'</td>' : '')+
       '<td class="num">'+money(li.unitPrice)+'</td>'+
       '<td class="num c-cost">'+(unitCost>0 ? money(lineMargin) : '<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+money(num(li.qty)*num(li.unitPrice))+'</td></tr>';
@@ -1022,7 +1031,8 @@ function openComposer(tx){
     paidStages: editing ? (editing.milestones||[]).filter(function(m){ return m.paid; }) : [],
     milestones: editing ? (editing.milestones||[]).filter(function(m){ return !m.paid; }).map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||""}; }) : [],
     lines: editing ? (editing.lineItems||[]).map(function(li){
-      return {kind:li.kind, productId:li.productId||"", baseId:li.baseId||"", coverId:li.coverId||"", qty:num(li.qty), unitPrice:num(li.unitPrice), touched:true};
+      return {kind:li.kind, productId:li.productId||"", baseId:li.baseId||"", coverId:li.coverId||"", serviceId:li.serviceId||"",
+        name:li.kind==="service" ? li.name : "", unit:li.unit||"", qty:num(li.qty), unitPrice:num(li.unitPrice), touched:true};
     }) : [{kind:"product", productId:"", baseId:"", coverId:"", qty:1, unitPrice:0, touched:false}]};
   $("of-title").textContent = editing ? "Edit quotation "+editing.refNo : "New price offer";
   $("of-save").textContent = editing ? "Save changes" : "Save quotation";
@@ -1095,16 +1105,19 @@ function renderComposer(){
   state.bases.forEach(function(b){ var k=b.line||"Other"; (groups[k]=groups[k]||[]).push(b); });
 
   $("of-lines").innerHTML = state.offer.lines.map(function(ln,i){
-    var std=lineStandard(ln,ctx), suggested=std*(1-ctx.discount);
+    /* The client's standing discount applies to the price book, not to labour rates. */
+    var std=lineStandard(ln,ctx), suggested = ln.kind==="service" ? std : std*(1-ctx.discount);
     if(!ln.touched) ln.unitPrice=Math.round(suggested*100)/100;
     var cost=lineCost(ln), lineTotal=num(ln.qty)*num(ln.unitPrice);
     var off=num(ln.unitPrice)-suggested;
     var marginTxt = costsVisible() ? (cost>0 ? pct((num(ln.unitPrice)-cost)/(num(ln.unitPrice)||1),0) : "—") : "";
-    var itemVal = ln.kind==="combo" ? (ln.baseId?"b:"+ln.baseId:"") : (ln.productId?"p:"+ln.productId:"");
+    var itemVal = ln.kind==="service" ? (ln.serviceId ? "s:"+ln.serviceId : "s:custom")
+      : (ln.kind==="combo" ? (ln.baseId?"b:"+ln.baseId:"") : (ln.productId?"p:"+ln.productId:""));
+    var activeServices=(state.services||[]).filter(function(sv){ return sv.active!==false; });
     var avail = null;
     if(ln.kind==="combo"){ var bb=baseById(ln.baseId), cc=coverById(ln.coverId);
       if(bb) avail=availableOf("base",bb); if(cc) avail=Math.min(avail==null?Infinity:avail, availableOf("cover",cc)); }
-    else { var pp=productById(ln.productId); if(pp) avail=availableOf("product",pp); }
+    else if(ln.kind!=="service"){ var pp=productById(ln.productId); if(pp) avail=availableOf("product",pp); }
     var covers = ln.kind==="combo" && ln.baseId ? state.covers.filter(function(c){ var b=baseById(ln.baseId); return b && c.line===b.line; }) : [];
     return '<div class="li" data-i="'+i+'">'+
       '<div><div class="lbl">Item</div>'+
@@ -1116,11 +1129,16 @@ function renderComposer(){
             return '<optgroup label="'+esc(k)+' line — base + cover">'+groups[k].map(function(b){
               return '<option value="b:'+b.id+'"'+(itemVal==="b:"+b.id?" selected":"")+'>'+esc(b.name)+'</option>'; }).join("")+'</optgroup>';
           }).join("")+
+          '<optgroup label="Labour and services">'+activeServices.map(function(sv){
+            return '<option value="s:'+sv.id+'"'+(itemVal==="s:"+sv.id?" selected":"")+'>'+esc(sv.name)+(sv.unit?' — per '+esc(sv.unit):'')+'</option>'; }).join("")+
+            '<option value="s:custom"'+(itemVal==="s:custom"?" selected":"")+'>Something else — type it in</option></optgroup>'+
         '</select>'+
+        (ln.kind==="service" ? '<input data-f="svcname" type="text" style="margin-top:6px" placeholder="What the work is" value="'+esc(ln.name||"")+'">'+
+          '<div class="tiny faint" style="margin-top:4px">labour · no stock'+(ln.unit ? ' · per '+esc(ln.unit) : '')+'</div>' : '')+
         (ln.kind==="combo" ? '<select data-f="cover"><option value="">Choose colour and finish…</option>'+covers.map(function(c){
           return '<option value="'+c.id+'"'+(c.id===ln.coverId?" selected":"")+'>'+esc(c.name)+'</option>'; }).join("")+'</select>' : '')+
       '</div>'+
-      '<div><div class="lbl">Qty</div><input data-f="qty" type="number" min="1" step="1" value="'+num(ln.qty)+'">'+
+      '<div><div class="lbl">'+(ln.kind==="service" ? "Units" : "Qty")+'</div><input data-f="qty" type="number" min="1" step="1" value="'+num(ln.qty)+'">'+
         (avail!=null && num(ln.qty)>avail ? '<div class="tiny" style="color:var(--warn); margin-top:4px">'+(avail>0 ? 'only '+avail+' available' : 'none available')+'</div>' : '')+'</div>'+
       '<div><div class="lbl">Book price</div><div class="fixed">'+money(suggested)+'</div></div>'+
       '<div><div class="lbl">You charge</div><input data-f="price" type="number" step="0.01" value="'+num(ln.unitPrice).toFixed(2)+'"></div>'+
@@ -1136,14 +1154,23 @@ function renderComposer(){
     row.querySelectorAll("[data-f]").forEach(function(inp){
       var f=inp.dataset.f;
       if(f==="remove"){ inp.addEventListener("click", function(){ state.offer.lines.splice(i,1); renderComposer(); }); return; }
+      /* Typing the name of a service must not redraw the row under the cursor. */
+      if(f==="svcname"){ inp.addEventListener("input", function(){ state.offer.lines[i].name=inp.value; }); return; }
       inp.addEventListener("input", function(){
         var L=state.offer.lines[i];
         if(f==="item"){
           var v=inp.value;
+          L.serviceId=""; L.touched=false;
           if(v.indexOf("p:")===0){ L.kind="product"; L.productId=v.slice(2); L.baseId=""; L.coverId=""; }
           else if(v.indexOf("b:")===0){ L.kind="combo"; L.baseId=v.slice(2); L.productId=""; L.coverId=""; }
+          else if(v.indexOf("s:")===0){
+            /* A service is charged at its rate, not discounted like the price book. */
+            L.kind="service"; L.productId=""; L.baseId=""; L.coverId="";
+            var sv = v==="s:custom" ? null : serviceById(v.slice(2));
+            L.serviceId = sv ? sv.id : ""; L.name = sv ? sv.name : ""; L.unit = sv ? sv.unit : "";
+            L.unitPrice = sv ? num(sv.rate) : 0; L.touched=true;
+          }
           else { L.kind="product"; L.productId=""; L.baseId=""; L.coverId=""; }
-          L.touched=false;
         } else if(f==="cover"){ L.coverId=inp.value; L.touched=false; }
         else if(f==="price"){ L.touched=true; L.unitPrice=num(inp.value); }
         else if(f==="qty"){ L.qty=num(inp.value); }
@@ -1253,7 +1280,8 @@ $("of-save").addEventListener("click", function(){
       .map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||null}; }),
     lines:done.map(function(l){
       var base={kind:l.kind, qty:num(l.qty), standardPrice:lineStandard(l,ctx), unitPrice:num(l.unitPrice)};
-      if(l.kind==="combo"){ base.baseId=l.baseId; base.coverId=l.coverId; } else { base.productId=l.productId; }
+      if(l.kind==="service"){ base.serviceId=l.serviceId||null; base.name=(l.name||"").trim(); base.unit=l.unit||""; }
+      else if(l.kind==="combo"){ base.baseId=l.baseId; base.coverId=l.coverId; } else { base.productId=l.productId; }
       return base;
     })
   };
@@ -1306,9 +1334,9 @@ function openDoc(t, kind){
   terms = String(terms||"").replace("{validity}", num(s.validityDays));
 
   var isNote = kind==="Delivery Note";
-  var rows=(t.lineItems||[]).map(function(li){
+  var rows=(t.lineItems||[]).filter(function(li){ return !(isNote && li.kind==="service"); }).map(function(li){
     if(isNote) return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td><td class="num">'+num(li.deliveredQty)+'</td><td class="num">'+(lineLeft(li)||"—")+'</td></tr>';
-    return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td>'+
+    return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+(li.unit ? ' '+esc(li.unit) : '')+'</td>'+
       (showMoney ? '<td class="num">'+money(li.unitPrice)+'</td><td class="num">'+money(num(li.qty)*num(li.unitPrice))+'</td>' : '')+
       '</tr>';
   }).join("");
@@ -1503,7 +1531,7 @@ function renderInventory(){
       openStockItem(p[0], byId(list, p[1]));
     });
   });
-  renderOrders(); renderSuppliers(); renderToDeliver();
+  renderOrders(); renderSuppliers(); renderToDeliver(); renderServices();
 }
 function wireAddButtons(){
   document.querySelectorAll("[data-add]").forEach(function(b){
@@ -1511,6 +1539,7 @@ function wireAddButtons(){
       var k=b.dataset.add;
       if(k==="product"||k==="base"||k==="cover") editStock(k,null);
       if(k==="supplier") editSupplier(null);
+      if(k==="service") editService(null);
       if(k==="client") editClient(null);
       if(k==="expense") editExpense(null);
       if(k==="employee") editEmployee(null);
@@ -1821,6 +1850,34 @@ function renderToDeliver(){
   $("deliver-body").querySelectorAll("[data-dt]").forEach(function(r){
     r.addEventListener("click", function(){ setView("sales"); openTx(r.dataset.dt); });
   });
+}
+
+/* ---------- Labour and services ---------- */
+function renderServices(){
+  var used={};
+  state.transactions.forEach(function(t){ (t.lineItems||[]).forEach(function(li){ if(li.serviceId) used[li.serviceId]=(used[li.serviceId]||0)+1; }); });
+  $("svc-body").innerHTML = state.services.length ? state.services.map(function(sv){
+    return '<tr class="'+(isManager()?"clickable":"")+'" data-svc="'+sv.id+'"><td class="strong">'+esc(sv.name)+'</td><td class="tiny muted">'+esc(sv.unit||"")+'</td>'+
+      '<td class="num">'+money(sv.rate)+'</td><td class="num">'+(used[sv.id]||'<span class="faint">—</span>')+'</td>'+
+      '<td>'+(sv.active!==false ? '<span class="pill good">Offered</span>' : '<span class="pill neutral">Retired</span>')+'</td></tr>';
+  }).join("") : emptyRow(5, isManager() ? "No services yet — add installation, programming, site visits…" : "No services listed yet.");
+  if(isManager()) $("svc-body").querySelectorAll("[data-svc]").forEach(function(r){
+    r.addEventListener("click", function(){ editService(byId(state.services, r.dataset.svc)); });
+  });
+}
+function editService(sv){
+  var isNew=!sv; var d=sv||{name:"", unit:"hour", rate:0, active:true};
+  openForm((isNew?"Add":"Edit")+" service", [
+    {fields:[{id:"sv-name", label:"Service", value:d.name, placeholder:"Installation"},
+             {id:"sv-unit", label:"Charged per", value:d.unit, placeholder:"hour, day, visit, point…"},
+             {id:"sv-rate", label:"Rate", type:"number", step:"0.01", value:num(d.rate)}]},
+    {fields:[{id:"sv-active", label:"Status", type:"select", options:[{value:"1", label:"Offered on new offers"},{value:"0", label:"Retired"}], value:d.active!==false?"1":"0"}]},
+    {note:"Labour lines carry no stock and no cost of goods, so they lift the margin on a project rather than distorting it."}
+  ], function(){
+    if(!val("sv-name")){ toast("Name the service", true); return false; }
+    save("services", isNew?null:sv.id, {name:val("sv-name"), unit:val("sv-unit")||"hour", rate:valNum("sv-rate"), active:val("sv-active")==="1"},
+      function(){ toast("Service saved"); });
+  }, isNew ? null : function(){ remove("services", sv.id, sv.name); });
 }
 
 /* ---------- Suppliers ---------- */
@@ -2237,7 +2294,7 @@ $("s-save").addEventListener("click", function(){
 /* ---------- Accounts (owner) and own password ---------- */
 /* ---------- Your data: backup, restore, spreadsheet; Recently deleted ---------- */
 var KIND_LABEL={client:"Contact", product:"Product", base:"Base", cover:"Cover", supplier:"Supplier", employee:"Person",
-  expense:"Expense", purchase_order:"Purchase order", payment:"Payment", payroll_payment:"Salary payment", user:"Account"};
+  expense:"Expense", purchase_order:"Purchase order", service:"Service", payment:"Payment", payroll_payment:"Salary payment", user:"Account"};
 function renderData(){
   $("data-section").hidden = $("trash-section").hidden = !isOwner();
   if(!isOwner()) return;

@@ -14,6 +14,7 @@ use App\Models\Expense;
 use App\Models\PayrollPayment;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
+use App\Models\Service;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\User;
@@ -50,6 +51,7 @@ class BootstrapController extends Controller
             'bases' => $stock(Base::orderBy('line')->orderBy('name')->get()),
             'covers' => $stock(Cover::orderBy('line')->orderBy('name')->get()),
             'transactions' => $deals,
+            'services' => $api(Service::orderBy('name')->get()),
             'deliveries' => $api(Delivery::with(['line', 'user'])->orderByDesc('delivered_on')->orderByDesc('id')->get()),
             // Money, purchasing, salaries, accounts and the bin are the owner's.
             'expenses' => $owner ? $api(Expense::orderByDesc('date')->orderByDesc('id')->get()) : [],
