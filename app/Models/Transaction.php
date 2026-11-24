@@ -31,6 +31,20 @@ class Transaction extends Model
         return $this->hasMany(Payment::class)->orderBy('date')->orderBy('id');
     }
 
+    /** The reference all versions of this offer share (the first version's). */
+    public function rootRef(): string
+    {
+        return $this->root_ref ?: $this->ref_no;
+    }
+
+    /** Every version of this offer, this one included. */
+    public function versions()
+    {
+        $root = $this->rootRef();
+
+        return static::where(fn ($q) => $q->where('root_ref', $root)->orWhere('ref_no', $root));
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -61,6 +75,9 @@ class Transaction extends Model
         return [
             'id' => self::sid($this->id),
             'refNo' => $this->ref_no,
+            'rootRef' => $this->root_ref ?: $this->ref_no,
+            'version' => (int) ($this->version ?: 1),
+            'setId' => self::sid($this->set_id),
             'yymm' => $this->yymm,
             'regionCode' => $this->region_code,
             'typeCode' => $this->type_code,

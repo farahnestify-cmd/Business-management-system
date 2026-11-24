@@ -15,7 +15,7 @@ var DEFAULTS = {
 var state = {
   view:"today", tab:{inventory:"stock", money:"pl"},
   filters:{sales:"open", contacts:"all", ledger:"all"},
-  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[], services:[],
+  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[], services:[], sets:[],
   employees:[], payroll:[], suppliers:[], orders:[], users:[], user:null,
   settings:Object.assign({}, DEFAULTS),
   offer:{lines:[]}, ready:false, q:""
@@ -175,6 +175,17 @@ function payState(tx){
   return "Partial";
 }
 function isLive(tx){ return tx.status!=="Cancelled"; }
+/* Versions: a revised quotation keeps its reference and gains -V2, -V3… */
+function rootRefOf(t){ return t.rootRef || t.refNo; }
+function versionsOf(t){
+  var r=rootRefOf(t);
+  return sortBy(state.transactions.filter(function(x){ return rootRefOf(x)===r; }), function(x){ return num(x.version)||1; });
+}
+function isSuperseded(t){
+  var v=num(t.version)||1;
+  return versionsOf(t).some(function(x){ return (num(x.version)||1)>v; });
+}
+function versionLabel(t){ return (num(t.version)||1)>1 ? "V"+num(t.version) : ""; }
 /* Money to hand back: all of it on a cancelled deal, the overpaid part on a live one. */
 function refundDue(tx){ return tx.status==="Cancelled" ? Math.max(0, txPaid(tx)) : Math.max(0, -txBalance(tx)); }
 function isBilled(tx){ return tx.status==="Invoiced" || tx.status==="Delivered"; }
@@ -353,7 +364,7 @@ function api(method, path, body){
 function reload(){
   if(loading) return loading;
   loading = api("GET", "bootstrap").then(function(d){
-    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash","services"].forEach(function(k){
+    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash","services","sets"].forEach(function(k){
       state[k] = d[k] || [];
     });
     state.user = d.user;
@@ -412,7 +423,7 @@ function applyRole(){
   $("settings-link").textContent = isManager() ? "Company settings" : "My account";
   if(!isOwner() && (state.tab.inventory==="orders" || state.tab.inventory==="suppliers")){
     state.tab.inventory="stock";
-    ["stock","orders","suppliers","deliver","services"].forEach(function(k){ $("inv-pane-"+k).hidden = k!=="stock"; });
+    ["stock","orders","suppliers","deliver","services","sets"].forEach(function(k){ $("inv-pane-"+k).hidden = k!=="stock"; });
     $("inv-tabs").querySelectorAll("button").forEach(function(b){ b.setAttribute("aria-pressed", String(b.dataset.t==="stock")); });
   }
   if(!isOwner() && (state.view==="money" || state.view==="team")) setView("today");
@@ -449,9 +460,10 @@ function syncInventoryAction(){
   if(state.tab.inventory==="orders"){ pa.textContent="New purchase order"; pa.onclick=function(){ editOrder(null); }; }
   else if(state.tab.inventory==="suppliers"){ pa.textContent="Add supplier"; pa.onclick=function(){ editSupplier(null); }; }
   else if(state.tab.inventory==="services"){ pa.textContent="Add service"; pa.onclick=function(){ editService(null); }; }
+  else if(state.tab.inventory==="sets"){ pa.textContent="New offer"; pa.onclick=function(){ openComposer(); }; }
   else { pa.textContent="Add product"; pa.onclick=function(){ editStock("product", null); }; }
   /* The catalogue is kept by owners and admins. */
-  if(state.user && !isManager() && state.tab.inventory!=="orders" && state.tab.inventory!=="suppliers") pa.hidden=true;
+  if(state.user && !isManager() && state.tab.inventory!=="sets") pa.hidden=true;
   else if(state.view==="inventory") pa.hidden=false;
 }
 document.querySelectorAll(".nav-btn").forEach(function(b){
@@ -485,6 +497,7 @@ wireSegmented("inv-tabs", function(v){
   $("inv-pane-suppliers").hidden = v!=="suppliers";
   $("inv-pane-deliver").hidden = v!=="deliver";
   $("inv-pane-services").hidden = v!=="services";
+  $("inv-pane-sets").hidden = v!=="sets";
   syncInventoryAction(); renderInventory();
 });
 wireSegmented("money-tabs", function(v){
@@ -548,7 +561,7 @@ function openDrawer(title, html){
 function closeDrawer(){ $("drawer-overlay").hidden = true; }
 $("drawer-close").addEventListener("click", closeDrawer);
 
-[["drawer-overlay",closeDrawer],["form-overlay",closeForm],["composer",closeComposer],
+[["drawer-overlay",closeDrawer],["form-overlay",closeForm],["composer",composerBackdrop],
  ["doc-overlay",function(){ $("doc-overlay").hidden=true; }],["palette",closePalette]].forEach(function(p){
   $(p[0]).addEventListener("click", function(e){ if(e.target===$(p[0])) p[1](); });
 });
@@ -558,7 +571,7 @@ document.addEventListener("keydown", function(e){
     if(!$("doc-overlay").hidden) return ($("doc-overlay").hidden=true);
     if(!$("form-overlay").hidden) return closeForm();
     if(!$("drawer-overlay").hidden) return closeDrawer();
-    if(!$("composer").hidden) return closeComposer();
+    if(!$("composer").hidden) return composerBackdrop();
   }
   if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); openPalette(); }
 });
@@ -721,7 +734,7 @@ function buildQueue(){
         go:function(){ setView("sales"); openTx(t.id); }});
     }
   });
-  state.transactions.filter(function(t){ return t.status==="Quotation"; }).forEach(function(t){
+  state.transactions.filter(function(t){ return t.status==="Quotation" && !isSuperseded(t); }).forEach(function(t){
     var age = daysSince(txDocDate(t));
     if(age!=null && age > num(s.staleDays)){
       items.push({sev:"warn", area:"sales", title:"Quotation for "+t.clientName+" has gone quiet",
@@ -779,7 +792,7 @@ function renderToday(){
     figure("Net this month", money0(pl.net)) :
     figure("Collected in "+monthShort(mk), money0(pl.collected)) +
     figure("Outstanding from clients", money0(outstandingTotal())) +
-    figure("In the pipeline", money0(sum(live.filter(function(t){ return t.status==="Quotation" || t.status==="Agreement"; }), txTotal))) +
+    figure("In the pipeline", money0(sum(live.filter(function(t){ return (t.status==="Quotation" || t.status==="Agreement") && !isSuperseded(t); }), txTotal))) +
     figure("Invoiced in "+monthShort(mk), money0(pl.sales));
 
   var q=buildQueue();
@@ -846,7 +859,8 @@ function salesRows(){
 }
 function renderSales(){
   var live=state.transactions.filter(isLive);
-  var pipeline=live.filter(function(t){ return t.status==="Quotation" || t.status==="Agreement"; });
+  /* A superseded version is still listed, but it is not a second job. */
+  var pipeline=live.filter(function(t){ return (t.status==="Quotation" || t.status==="Agreement") && !isSuperseded(t); });
   var mk=thisMonth();
   var billedThis=live.filter(function(t){ return isBilled(t) && monthKey(txRecognisedDate(t))===mk; });
   var withCost=live.filter(txHasCost);
@@ -866,7 +880,8 @@ function renderSales(){
     var bal=txBalance(t), age=txAge(t), overdue = bal>0.004 && isBilled(t) && age!=null && age>num(state.settings.overdueDays);
     var m = txHasCost(t) ? pct(txMargin(t)/(txSubtotal(t)||1),0) : '<span class="faint">—</span>';
     return '<tr class="clickable" data-tx="'+t.id+'">'+
-      '<td class="mono">'+esc(t.refNo)+'<div class="tiny faint">'+fmtDate(txDocDate(t))+'</div></td>'+
+      '<td class="mono">'+esc(t.refNo)+(versionLabel(t) || isSuperseded(t) ? ' <span class="pill '+(isSuperseded(t)?"neutral":"info")+'">'+(versionLabel(t)||"V1")+'</span>' : '')+
+        '<div class="tiny faint">'+fmtDate(txDocDate(t))+(isSuperseded(t) ? ' · superseded' : '')+'</div></td>'+
       '<td class="strong">'+esc(t.clientName||"—")+'<div class="tiny faint">'+esc(t.region||"")+' · '+esc(t.clientType||"")+
         (t.soldBy ? ' · '+esc(t.soldBy) : '')+'</div>'+(t.site ? '<div class="tiny muted">'+esc(t.site)+'</div>' : '')+'</td>'+
       '<td>'+dealStage(t)+'</td>'+
@@ -951,7 +966,8 @@ function openTx(id){
       '<div class="field"><label>&nbsp;</label><button class="btn" type="button" id="tx-pay">'+(due>0.004 ? "Record refund" : "Record")+'</button></div>'+
     '</div>' : '')+
     '<div style="display:flex; gap:8px; flex-wrap:wrap; padding-top:4px">'+
-      (t.status==="Quotation" ? '<button class="btn sm" type="button" id="tx-edit">Edit quotation</button>' : '')+
+      (t.status==="Quotation" ? '<button class="btn sm" type="button" id="tx-revise">Revise for the client</button>' : '')+
+      (t.status==="Quotation" ? '<button class="btn quiet sm" type="button" id="tx-edit">Edit</button>' : '')+
       next.filter(function(a){ return !(a==="Cancelled" && deliveredSome(t)); }).map(function(a){
         var label = a==="Cancelled" ? "Cancel deal" : (a!=="Delivered" ? "Move to "+a : (plan.later.length ? "Deliver what is in stock" : "Deliver"));
         var blocked = a==="Delivered" && !plan.now.length;
@@ -965,7 +981,10 @@ function openTx(id){
     (plan.later.length ?
       '<p class="tiny" style="color:var(--warn)">'+(plan.now.length ? 'Delivering now: '+esc(listQty(plan.now))+'.<br>' : 'Nothing in stock to deliver yet.<br>')+
       'Still to come: '+esc(listQty(plan.later))+'. It stays on the To deliver list until the stock arrives.</p>' : '')+
-    (t.notes ? '<p class="tiny muted">'+esc(t.notes)+'</p>' : '');
+    (t.notes ? '<p class="tiny muted">'+esc(t.notes)+'</p>' : '')+
+    (versionsOf(t).length>1 ? '<p class="tiny muted">Versions: '+versionsOf(t).map(function(x){
+      return x.id===t.id ? '<b>'+esc(x.refNo)+'</b>' : '<a href="#" data-ver="'+x.id+'">'+esc(x.refNo)+'</a>'+(x.status==="Cancelled" ? ' (cancelled)' : '');
+    }).join(" · ")+(isSuperseded(t) ? ' — a newer version exists' : '')+'</p>' : '');
 
   openDrawer(t.refNo + " · " + (t.clientName||""), html);
   $("drawer-body").querySelectorAll("[data-adv]").forEach(function(b){
@@ -996,7 +1015,11 @@ function openTx(id){
       send("DELETE", "payments/"+b.dataset.delpay, null, function(){ openTx(t.id); }, "Payment deleted");
     });
   });
-  if($("tx-edit")) $("tx-edit").addEventListener("click", function(){ closeDrawer(); openComposer(t); });
+  if($("tx-edit")) $("tx-edit").addEventListener("click", function(){ closeDrawer(); openComposer(t, "edit"); });
+  if($("tx-revise")) $("tx-revise").addEventListener("click", function(){ closeDrawer(); openComposer(t, "revise"); });
+  $("drawer-body").querySelectorAll("[data-ver]").forEach(function(a){
+    a.addEventListener("click", function(e){ e.preventDefault(); openTx(a.dataset.ver); });
+  });
   $("drawer-body").querySelectorAll("[data-ms]").forEach(function(b){
     b.addEventListener("click", function(){
       var m=byId(t.milestones||[], b.dataset.ms); if(!m) return;
@@ -1017,53 +1040,211 @@ function advance(t, next){
     });
     return;
   }
-  send("POST", "transactions/"+t.id+"/advance", {status:next},
-    function(){ closeDrawer(); }, t.refNo+" is now "+next.toLowerCase());
+  if(next==="Agreement"){
+    var others=versionsOf(t).filter(function(x){ return x.id!==t.id && x.status==="Quotation"; });
+    if(others.length && !window.confirm("Confirm "+t.refNo+"?\n\nOnly one version can become the deal, so "+
+      others.map(function(x){ return x.refNo; }).join(", ")+(others.length===1 ? " will be cancelled." : " will be cancelled."))) return;
+  }
+  send("POST", "transactions/"+t.id+"/advance", {status:next}, function(res){
+    closeDrawer();
+    var n=res && res.closedVersions;
+    toast(t.refNo+" is now "+next.toLowerCase()+(n ? " — "+n+(n===1 ? " other version" : " other versions")+" cancelled" : ""));
+  });
 }
 
 /* ============================================================
    17. OFFER COMPOSER
    ============================================================ */
 /* With a quotation, the composer edits it; without, it starts a new offer. */
-function openComposer(tx){
-  var editing = tx && tx.id ? tx : null;
-  state.offer={editId: editing ? editing.id : null, ref: editing ? editing.refNo : "",
-    paidStages: editing ? (editing.milestones||[]).filter(function(m){ return m.paid; }) : [],
-    milestones: editing ? (editing.milestones||[]).filter(function(m){ return !m.paid; }).map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||""}; }) : [],
-    lines: editing ? (editing.lineItems||[]).map(function(li){
-      return {kind:li.kind, productId:li.productId||"", baseId:li.baseId||"", coverId:li.coverId||"", serviceId:li.serviceId||"",
-        name:li.kind==="service" ? li.name : "", unit:li.unit||"", qty:num(li.qty), unitPrice:num(li.unitPrice), touched:true};
-    }) : [{kind:"product", productId:"", baseId:"", coverId:"", qty:1, unitPrice:0, touched:false}]};
-  $("of-title").textContent = editing ? "Edit quotation "+editing.refNo : "New price offer";
-  $("of-save").textContent = editing ? "Save changes" : "Save quotation";
-  $("of-paid-wrap").hidden = $("of-method-wrap").hidden = !!editing;
-  $("of-date").value = editing ? txDocDate(editing) : todayISO();
+function blankLine(){ return {kind:"product", productId:"", baseId:"", coverId:"", serviceId:"", name:"", unit:"", qty:1, unitPrice:0, touched:false}; }
+function linesFrom(t){
+  return (t.lineItems||[]).map(function(li){
+    return {kind:li.kind, productId:li.productId||"", baseId:li.baseId||"", coverId:li.coverId||"", serviceId:li.serviceId||"",
+      name:li.kind==="service" ? li.name : "", unit:li.unit||"", qty:num(li.qty), unitPrice:num(li.unitPrice), touched:true};
+  });
+}
+/* mode: "new", "edit" (fix the quotation itself) or "revise" (save a new version for the client). */
+function openComposer(tx, mode){
+  var src = tx && tx.id ? tx : null;
+  mode = src ? (mode || "edit") : "new";
+  if(mode==="revise") src = versionsOf(src).slice(-1)[0] || src;
+  var nextVersion = mode==="revise" ? Math.max.apply(null, versionsOf(src).map(function(x){ return num(x.version)||1; }))+1 : 0;
+  state.offer={mode:mode, editId: mode==="edit" ? src.id : null, ref: src ? src.refNo : "", setId: src ? (src.setId||"") : "",
+    reviseOf: mode==="revise" ? {id:src.id, root:rootRefOf(src), version:nextVersion} : null,
+    paidStages: src ? (src.milestones||[]).filter(function(m){ return m.paid; }) : [],
+    milestones: src ? (src.milestones||[]).filter(function(m){ return !m.paid; }).map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||""}; }) : [],
+    lines: src ? linesFrom(src) : [blankLine()]};
+  $("of-title").textContent = mode==="edit" ? "Edit quotation "+src.refNo
+    : (mode==="revise" ? "Revise "+src.refNo+" for the client — saves as "+state.offer.reviseOf.root+"-V"+nextVersion : "New price offer");
+  $("of-save").textContent = mode==="edit" ? "Save changes" : (mode==="revise" ? "Save as V"+nextVersion : "Save quotation");
+  $("of-paid-wrap").hidden = $("of-method-wrap").hidden = !!src;
+  $("of-date").value = mode==="edit" ? txDocDate(src) : todayISO();
   $("of-paid").value=0;
-  $("of-notes").value = editing ? (editing.notes||"") : "";
-  $("of-site").value = editing ? (editing.site||"") : "";
+  $("of-notes").value = src ? (src.notes||"") : "";
+  $("of-site").value = src ? (src.site||"") : "";
   /* New offers are stamped with whoever writes them; anyone can be named instead. */
-  $("of-seller").value = editing ? (editing.soldBy||"") : (state.user ? state.user.name : "");
+  $("of-seller").value = src ? (src.soldBy||"") : (state.user ? state.user.name : "");
   var names={};
   state.transactions.forEach(function(t){ if(t.soldBy) names[t.soldBy]=1; });
   (state.users||[]).forEach(function(u){ names[u.name]=1; });
   if(state.user) names[state.user.name]=1;
   $("seller-list").innerHTML = Object.keys(names).sort().map(function(n){ return '<option value="'+esc(n)+'">'; }).join("");
-  $("of-due").value = editing ? (editing.dueDate||"") : "";
+  $("of-due").value = src ? (src.dueDate||"") : "";
   $("composer").hidden=false;
   renderComposer();
   renderMilestones();
-  if(editing){
-    $("of-client").value=editing.clientId||"";
-    $("of-region").value=editing.region||"West Bank";
-    var ty=document.querySelector('input[name="oftype"][value="'+(editing.typeCode==="P"?"Partner":"Direct")+'"]'); if(ty) ty.checked=true;
-    var sv=document.querySelector('input[name="ofservice"][value="'+editing.serviceType+'"]'); if(sv) sv.checked=true;
+  if(src){
+    $("of-client").value=src.clientId||"";
+    $("of-region").value=src.region||"West Bank";
+    setRadio("oftype", src.typeCode==="P" ? "Partner" : "Direct");
+    setRadio("ofservice", src.serviceType||"With Programming");
     renderComposer();
   }
+  if(mode==="revise") toast("Revising "+src.refNo+" — it will be saved as V"+nextVersion+"; the earlier version stays");
+  /* A new offer left unsaved last time can be picked up again. */
+  if(mode==="new"){
+    var kept=readDraft();
+    if(kept && window.confirm("You have an offer that was never saved (from "+fmtDate(String(kept.savedAt).slice(0,10))+").\n\nOK to carry on with it, Cancel to start this one fresh.")) restoreDraft(kept);
+    else if(kept) clearDraft();
+  }
+}
+function setRadio(name, value){
+  document.querySelectorAll('input[name="'+name+'"]').forEach(function(r){ r.checked = r.value===value; });
+}
+function radioVal(name){ var el=document.querySelector('input[name="'+name+'"]:checked'); return el ? el.value : ""; }
+
+/* ---------- Not losing a half-written offer ----------
+   Whatever is on screen is kept as a draft in this browser, so a closed tab or a stray
+   click can be picked up again. It is a safety net, never a second copy: saving clears it. */
+function draftKey(){ return "nestify.offer.draft."+(state.user ? state.user.id : "anon"); }
+function offerHasContent(){
+  var o=state.offer||{};
+  if((o.lines||[]).some(function(l){ return l.productId || l.baseId || l.serviceId || (l.name||"").trim(); })) return true;
+  if((o.milestones||[]).length) return true;
+  return !!(val("of-client") || val("of-site") || val("of-notes") || valNum("of-paid")>0);
+}
+function saveDraft(){
+  if($("composer").hidden || !state.offer || state.offer.mode==="edit") return;
+  try{
+    if(!offerHasContent()){ window.localStorage.removeItem(draftKey()); return; }
+    window.localStorage.setItem(draftKey(), JSON.stringify({savedAt:new Date().toISOString(),
+      offer:{mode:state.offer.mode, reviseOf:state.offer.reviseOf, setId:state.offer.setId||"", lines:state.offer.lines, milestones:state.offer.milestones||[],
+        paidStages:state.offer.paidStages||[], ref:state.offer.ref||""},
+      fields:{client:val("of-client"), region:val("of-region"), date:val("of-date"), site:val("of-site"), seller:val("of-seller"),
+        paid:val("of-paid"), method:val("of-method"), due:val("of-due"), notes:val("of-notes"), type:radioVal("oftype"), service:radioVal("ofservice")}}));
+  }catch(e){}
+}
+var draftTimer=null;
+function scheduleDraftSave(){ clearTimeout(draftTimer); draftTimer=setTimeout(saveDraft, 400); }
+function clearDraft(){ try{ window.localStorage.removeItem(draftKey()); }catch(e){} }
+function readDraft(){
+  try{ var d=JSON.parse(window.localStorage.getItem(draftKey())||"null"); return d && d.offer && (d.offer.lines||[]).length ? d : null; }catch(e){ return null; }
+}
+function restoreDraft(d){
+  var o=d.offer, f=d.fields||{};
+  /* A draft revision only comes back while its quotation can still be revised. */
+  var rv=o.reviseOf && byId(state.transactions, o.reviseOf.id);
+  var asRevision = !!(rv && rv.status==="Quotation");
+  state.offer={mode: asRevision ? "revise" : "new", editId:null, reviseOf: asRevision ? o.reviseOf : null, setId:o.setId||"", ref:o.ref||"",
+    lines:o.lines||[blankLine()], milestones:o.milestones||[], paidStages: asRevision ? (o.paidStages||[]) : []};
+  $("of-client").value=f.client||""; $("of-region").value=f.region||"West Bank"; $("of-date").value=f.date||todayISO();
+  $("of-site").value=f.site||""; $("of-seller").value=f.seller||""; $("of-paid").value=f.paid||0; $("of-method").value=f.method||"Cash";
+  $("of-due").value=f.due||""; $("of-notes").value=f.notes||"";
+  setRadio("oftype", f.type||"Direct"); setRadio("ofservice", f.service||"With Programming");
+  $("of-paid-wrap").hidden = $("of-method-wrap").hidden = asRevision;
+  $("of-title").textContent = asRevision ? "Revise "+state.offer.ref+" for the client — saves as "+o.reviseOf.root+"-V"+o.reviseOf.version : "New price offer";
+  $("of-save").textContent = asRevision ? "Save as V"+o.reviseOf.version : "Save quotation";
+  renderComposer(); renderMilestones();
+  toast("Picked up where you left off");
+}
+$("composer").addEventListener("input", scheduleDraftSave);
+$("composer").addEventListener("change", scheduleDraftSave);
+/* Leaving on purpose asks first when something has been written; a stray click does not leave at all. */
+function requestCloseComposer(){
+  if(offerHasContent() && state.offer.mode!=="edit" && !window.confirm("Discard this offer? What you have written here will be lost.")) return;
+  clearDraft(); closeComposer();
+}
+function composerBackdrop(){
+  if(!offerHasContent()){ closeComposer(); return; }
+  toast("Your offer is still here — Save it when it is ready, or Discard to leave it");
+}
+
+/* ---------- Offer sets ---------- */
+function setContents(st){ return (st.lines||[]).map(function(l){ return lineName(l) || l.name || "—"; }); }
+function renderSetPicker(){
+  var sel=$("of-set"); if(!sel) return;
+  var sets=sortBy(state.sets, function(x){ return x.name||""; });
+  sel.innerHTML='<option value="">Start from a set…</option>'+sets.map(function(x){
+    return '<option value="'+x.id+'">'+esc(x.name)+' · '+(x.lines||[]).length+' rows</option>'; }).join("")+
+    (sets.length ? '' : '<option value="" disabled>— none saved yet —</option>');
+  sel.value="";
+}
+/* Applying a set adds its rows at quantity 0, so only the quantities are left to type; it never takes away what is written. */
+function applySet(id){
+  var st=byId(state.sets, id); if(!st) return;
+  var rows=(st.lines||[]).map(function(l){
+    var sv=l.kind==="service" && l.serviceId ? serviceById(l.serviceId) : null;
+    return {kind:l.kind||"product", productId:l.productId||"", baseId:l.baseId||"", coverId:l.coverId||"", serviceId:l.serviceId||"",
+      name:l.kind==="service" ? (l.name || (sv && sv.name) || "") : "", unit:l.unit||(sv && sv.unit)||"", qty:0,
+      unitPrice: sv ? num(sv.rate) : 0, touched: l.kind==="service"};
+  });
+  var kept=state.offer.lines.filter(lineReady);
+  state.offer.lines=kept.concat(rows);
+  state.offer.setId=st.id;
+  renderComposer(); scheduleDraftSave();
+  var first=$("of-lines").querySelector('.li[data-i="'+kept.length+'"] [data-f="qty"]'); if(first) first.focus();
+  toast(rows.length+" rows added — type the quantities; rows left at 0 print as options");
+}
+$("of-set").addEventListener("change", function(){ var v=this.value; this.value=""; if(v) applySet(v); });
+$("of-set-save").addEventListener("click", function(){
+  var rows=state.offer.lines.filter(lineReady);
+  if(!rows.length){ toast("Put some rows in the offer first", true); return; }
+  openForm("Save these rows as a set", [
+    {fields:[{id:"ls-name", label:"Name it", placeholder:"3-bedroom flat — the usual rows", value:""}]},
+    {note:rows.length+" rows will be saved: "+rows.map(lineName).join(", ")+". Quantities and prices are not saved — a set is the list, not the order."}
+  ], function(){
+    if(!val("ls-name")){ toast("Give it a name first", true); return false; }
+    save("offer_sets", null, {name:val("ls-name"), lines:rows.map(function(l){
+      return {kind:l.kind, productId:l.productId||null, baseId:l.baseId||null, coverId:l.coverId||null, serviceId:l.serviceId||null,
+        name:l.kind==="service" ? (l.name||"") : null, unit:l.unit||null};
+    })}, function(){ renderSetPicker(); toast("Saved as a set — it is on the list next time"); });
+  });
+});
+$("of-clear-empty").addEventListener("click", function(){
+  var before=state.offer.lines.length;
+  var kept=state.offer.lines.filter(function(l){ return lineReady(l) && num(l.qty)>0; });
+  if(!kept.length) kept=[blankLine()];
+  var gone=before-kept.length;
+  if(!gone){ toast("Every row has a quantity already"); return; }
+  state.offer.lines=kept; renderComposer(); scheduleDraftSave();
+  toast(gone+(gone===1 ? " empty row removed" : " empty rows removed"));
+});
+function renderSets(){
+  var used={};
+  state.transactions.forEach(function(t){ if(t.setId) used[t.setId]=(used[t.setId]||0)+1; });
+  $("sets-body").innerHTML = state.sets.length ? sortBy(state.sets, function(x){ return x.name||""; }).map(function(x){
+    var what=setContents(x);
+    return '<tr class="clickable" data-set="'+x.id+'"><td class="strong">'+esc(x.name)+'</td><td class="num">'+what.length+'</td>'+
+      '<td class="tiny muted">'+esc(what.slice(0,4).join(", ")+(what.length>4 ? " +"+(what.length-4)+" more" : ""))+'</td>'+
+      '<td class="num">'+(used[x.id]||'<span class="faint">—</span>')+'</td></tr>';
+  }).join("") : emptyRow(4,"No sets yet — write an offer the way you like it, then Save as a set.");
+  $("sets-body").querySelectorAll("[data-set]").forEach(function(r){
+    r.addEventListener("click", function(){ editSet(byId(state.sets, r.dataset.set)); });
+  });
+}
+function editSet(st){
+  openForm("Offer set", [
+    {fields:[{id:"ls-name", label:"Name", value:st.name}]},
+    {note:"Rows: "+setContents(st).join(", ")+". To change the rows, start an offer from this set, change it, and save it as a new set."}
+  ], function(){
+    if(!val("ls-name")){ toast("Give it a name first", true); return false; }
+    save("offer_sets", st.id, {name:val("ls-name")}, function(){ toast("Set renamed"); });
+  }, function(){ remove("offer_sets", st.id, "the set “"+st.name+"”"); });
 }
 function closeComposer(){ $("composer").hidden=true; }
-$("of-cancel").addEventListener("click", closeComposer);
+$("of-cancel").addEventListener("click", requestCloseComposer);
 $("of-add").addEventListener("click", function(){
-  state.offer.lines.push({kind:"product", productId:"", baseId:"", coverId:"", qty:1, unitPrice:0, touched:false});
+  state.offer.lines.push(blankLine());
   renderComposer();
 });
 ["of-client","of-region","of-date"].forEach(function(id){ $(id).addEventListener("change", function(){
@@ -1097,9 +1278,10 @@ function renderComposer(){
 
   var ym=yymmOf(ctx.date);
   /* An edited quotation keeps its month and counter; only the region/type letters can change. */
-  $("of-ref").textContent = state.offer.editId
-    ? state.offer.ref.slice(0,4) + regionCode(ctx.region) + typeCode(ctx.type) + state.offer.ref.slice(6)
-    : buildRef(ym, regionCode(ctx.region), typeCode(ctx.type), nextSeq(ym));
+  $("of-ref").textContent = state.offer.reviseOf ? state.offer.reviseOf.root+"-V"+state.offer.reviseOf.version
+    : (state.offer.editId ? (/-V\d+$/.test(state.offer.ref) ? state.offer.ref : state.offer.ref.slice(0,4) + regionCode(ctx.region) + typeCode(ctx.type) + state.offer.ref.slice(6))
+    : buildRef(ym, regionCode(ctx.region), typeCode(ctx.type), nextSeq(ym)));
+  renderSetPicker();
 
   var groups={};
   state.bases.forEach(function(b){ var k=b.line||"Other"; (groups[k]=groups[k]||[]).push(b); });
@@ -1138,7 +1320,8 @@ function renderComposer(){
         (ln.kind==="combo" ? '<select data-f="cover"><option value="">Choose colour and finish…</option>'+covers.map(function(c){
           return '<option value="'+c.id+'"'+(c.id===ln.coverId?" selected":"")+'>'+esc(c.name)+'</option>'; }).join("")+'</select>' : '')+
       '</div>'+
-      '<div><div class="lbl">'+(ln.kind==="service" ? "Units" : "Qty")+'</div><input data-f="qty" type="number" min="1" step="1" value="'+num(ln.qty)+'">'+
+      '<div><div class="lbl">'+(ln.kind==="service" ? "Units" : "Qty")+'</div><input data-f="qty" type="number" min="0" step="1" value="'+num(ln.qty)+'">'+
+        (num(ln.qty)===0 && lineReady(ln) ? '<div class="tiny faint" style="margin-top:4px">optional</div>' : '')+
         (avail!=null && num(ln.qty)>avail ? '<div class="tiny" style="color:var(--warn); margin-top:4px">'+(avail>0 ? 'only '+avail+' available' : 'none available')+'</div>' : '')+'</div>'+
       '<div><div class="lbl">Book price</div><div class="fixed">'+money(suggested)+'</div></div>'+
       '<div><div class="lbl">You charge</div><input data-f="price" type="number" step="0.01" value="'+num(ln.unitPrice).toFixed(2)+'"></div>'+
@@ -1265,17 +1448,18 @@ $("of-ms-add").addEventListener("click", function(){
 $("of-save").addEventListener("click", function(){
   var ctx=offerCtx();
   if(!ctx.client){ toast("Choose a client first", true); return; }
-  var done=state.offer.lines.filter(function(l){ return lineReady(l) && num(l.qty)>0; });
-  if(!done.length){ toast("Add at least one item", true); return; }
-  var editId=state.offer.editId;
-  var paid=editId ? 0 : valNum("of-paid");
+  /* Rows at 0 stay on purpose: they print as options the client could add. */
+  var done=state.offer.lines.filter(lineReady);
+  if(!done.some(function(l){ return num(l.qty)>0; })){ toast("Give at least one row a quantity", true); return; }
+  var editId=state.offer.editId, rev=state.offer.reviseOf;
+  var paid=(editId || rev) ? 0 : valNum("of-paid");
   var total=sum(done,function(l){ return num(l.qty)*num(l.unitPrice); })*(1+num(state.settings.vatPct)/100);
   if(paid>total+0.004){ toast("Paid now is more than the offer total of "+money(total), true); return; }
   var data={
     clientId:ctx.client.id, region:ctx.region, dealType:ctx.type, serviceType:ctx.service,
     date:ctx.date, dueDate:val("of-due") || null, notes:val("of-notes"),
     site:val("of-site"), soldBy:val("of-seller"),
-    paid:paid, method:val("of-method"),
+    paid:paid, method:val("of-method"), setId:state.offer.setId||null,
     milestones:(state.offer.milestones||[]).filter(function(m){ return num(m.amount)>0; })
       .map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||null}; }),
     lines:done.map(function(l){
@@ -1287,8 +1471,12 @@ $("of-save").addEventListener("click", function(){
   };
   var btn=$("of-save"); btn.disabled=true;
   /* The server hands out the reference number, so two people saving at once never collide. */
-  api(editId ? "PUT" : "POST", "transactions"+(editId ? "/"+editId : ""), data).then(function(res){
-    return reload().then(function(){ toast((editId ? "Updated " : "Saved as ")+res.refNo); closeComposer(); setView("sales"); });
+  api(editId ? "PUT" : "POST", "transactions"+(editId ? "/"+editId : (rev ? "/"+rev.id+"/revise" : "")), data).then(function(res){
+    clearDraft();
+    return reload().then(function(){
+      toast(editId ? "Updated "+res.refNo : (rev ? "Saved as "+res.refNo+" — the earlier version stays until one is confirmed" : "Saved as "+res.refNo));
+      closeComposer(); setView("sales");
+    });
   }).catch(function(e){ toast(e.message || "Could not save", true); })
     .then(function(){ btn.disabled=false; });
 });
@@ -1336,6 +1524,8 @@ function openDoc(t, kind){
   var isNote = kind==="Delivery Note";
   var rows=(t.lineItems||[]).filter(function(li){ return !(isNote && li.kind==="service"); }).map(function(li){
     if(isNote) return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td><td class="num">'+num(li.deliveredQty)+'</td><td class="num">'+(lineLeft(li)||"—")+'</td></tr>';
+    if(num(li.qty)===0) return '<tr><td>'+esc(li.name)+' <span style="color:#8B928B">· optional</span></td><td class="num">—</td>'+
+      (showMoney ? '<td class="num">'+money(li.unitPrice)+'</td><td class="num" style="color:#8B928B">optional</td>' : '')+'</tr>';
     return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+(li.unit ? ' '+esc(li.unit) : '')+'</td>'+
       (showMoney ? '<td class="num">'+money(li.unitPrice)+'</td><td class="num">'+money(num(li.qty)*num(li.unitPrice))+'</td>' : '')+
       '</tr>';
@@ -1344,6 +1534,7 @@ function openDoc(t, kind){
   var pays=normalizedPayments(t);
   var totals = showMoney ?
     '<div class="d-tot">'+
+      '<div class="r"><span>Total quantity</span><span>'+sum((t.lineItems||[]).filter(function(li){ return li.kind!=="service"; }), function(li){ return li.qty; })+'</span></div>'+
       '<div class="r"><span>Subtotal</span><span>'+money(txSubtotal(t))+'</span></div>'+
       (num(t.vatPct)>0 ? '<div class="r"><span>VAT '+num(t.vatPct)+'%</span><span>'+money(txVat(t))+'</span></div>' : '')+
       '<div class="r g"><span>'+(kind==="Receipt"?"Invoice total":"Total")+'</span><span>'+money(txTotal(t))+'</span></div>'+
@@ -1531,7 +1722,7 @@ function renderInventory(){
       openStockItem(p[0], byId(list, p[1]));
     });
   });
-  renderOrders(); renderSuppliers(); renderToDeliver(); renderServices();
+  renderOrders(); renderSuppliers(); renderToDeliver(); renderServices(); renderSets();
 }
 function wireAddButtons(){
   document.querySelectorAll("[data-add]").forEach(function(b){
@@ -2294,7 +2485,7 @@ $("s-save").addEventListener("click", function(){
 /* ---------- Accounts (owner) and own password ---------- */
 /* ---------- Your data: backup, restore, spreadsheet; Recently deleted ---------- */
 var KIND_LABEL={client:"Contact", product:"Product", base:"Base", cover:"Cover", supplier:"Supplier", employee:"Person",
-  expense:"Expense", purchase_order:"Purchase order", service:"Service", payment:"Payment", payroll_payment:"Salary payment", user:"Account"};
+  expense:"Expense", purchase_order:"Purchase order", service:"Service", offer_set:"Offer set", payment:"Payment", payroll_payment:"Salary payment", user:"Account"};
 function renderData(){
   $("data-section").hidden = $("trash-section").hidden = !isOwner();
   if(!isOwner()) return;

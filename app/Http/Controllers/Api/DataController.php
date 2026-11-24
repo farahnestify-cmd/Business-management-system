@@ -20,7 +20,7 @@ class DataController extends Controller
 {
     /** Parents before children, so a restore can insert in this order. */
     private const TABLES = [
-        'company_settings', 'clients', 'products', 'bases', 'covers', 'services', 'suppliers', 'employees',
+        'company_settings', 'clients', 'products', 'bases', 'covers', 'services', 'offer_sets', 'suppliers', 'employees',
         'transactions', 'transaction_items', 'payments', 'payment_milestones', 'deliveries',
         'purchase_orders', 'purchase_order_lines', 'expenses', 'payroll_payments', 'deleted_records',
     ];

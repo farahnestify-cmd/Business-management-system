@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Api\BootstrapController;
 use App\Http\Controllers\Api\DataController;
 use App\Http\Controllers\Api\ExpenseController;
+use App\Http\Controllers\Api\OfferSetController;
 use App\Http\Controllers\Api\PayrollController;
 use App\Http\Controllers\Api\PurchaseOrderController;
 use App\Http\Controllers\Api\RecordController;
@@ -32,6 +33,10 @@ Route::middleware('auth')->group(function () {
         Route::post('transactions/{transaction}/deliver', [SalesController::class, 'deliver']);
         Route::post('transactions/{transaction}/milestones/{milestone}/pay', [SalesController::class, 'payMilestone']);
         Route::post('transactions/{transaction}/refunds', [SalesController::class, 'refund']);
+        Route::post('transactions/{transaction}/revise', [SalesController::class, 'revise']);
+        Route::post('offer_sets', [OfferSetController::class, 'store']);
+        Route::put('offer_sets/{offerSet}', [OfferSetController::class, 'update']);
+        Route::delete('offer_sets/{offerSet}', [OfferSetController::class, 'destroy']);
 
         Route::post('account/password', [AccountController::class, 'password']);
 

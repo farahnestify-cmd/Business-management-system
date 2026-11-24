@@ -9,6 +9,7 @@ use App\Models\DeletedRecord;
 use App\Models\Employee;
 use App\Models\Expense;
 use App\Models\Milestone;
+use App\Models\OfferSet;
 use App\Models\Payment;
 use App\Models\PayrollPayment;
 use App\Models\Product;
@@ -36,6 +37,7 @@ class RecycleBin
         'cover' => [Cover::class, 'Cover'],
         'supplier' => [Supplier::class, 'Supplier'],
         'service' => [Service::class, 'Service'],
+        'offer_set' => [OfferSet::class, 'Offer set'],
         'employee' => [Employee::class, 'Person'],
         'expense' => [Expense::class, 'Expense'],
         'purchase_order' => [PurchaseOrder::class, 'Purchase order'],

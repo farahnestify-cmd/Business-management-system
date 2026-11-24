@@ -11,6 +11,7 @@ use App\Models\DeletedRecord;
 use App\Models\Delivery;
 use App\Models\Employee;
 use App\Models\Expense;
+use App\Models\OfferSet;
 use App\Models\PayrollPayment;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
@@ -52,6 +53,7 @@ class BootstrapController extends Controller
             'covers' => $stock(Cover::orderBy('line')->orderBy('name')->get()),
             'transactions' => $deals,
             'services' => $api(Service::orderBy('name')->get()),
+            'sets' => $api(OfferSet::orderBy('name')->get()),
             'deliveries' => $api(Delivery::with(['line', 'user'])->orderByDesc('delivered_on')->orderByDesc('id')->get()),
             // Money, purchasing, salaries, accounts and the bin are the owner's.
             'expenses' => $owner ? $api(Expense::orderByDesc('date')->orderByDesc('id')->get()) : [],

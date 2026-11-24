@@ -122,6 +122,7 @@
           <button type="button" data-t="suppliers" data-need="owner">Suppliers</button>
           <button type="button" data-t="deliver">To deliver</button>
           <button type="button" data-t="services">Services</button>
+          <button type="button" data-t="sets">Offer sets</button>
         </div>
 
         <div id="inv-pane-stock">
@@ -179,6 +180,18 @@
             <div class="panel"><div class="table-wrap"><table>
               <thead><tr><th>Service</th><th>Charged per</th><th class="num">Rate</th><th class="num">On deals</th><th>Status</th></tr></thead>
               <tbody id="svc-body"></tbody>
+            </table></div></div>
+          </div>
+        </div>
+
+        <div id="inv-pane-sets" hidden>
+          <div class="section">
+            <div class="section-head">
+              <div><h2>Offer sets</h2><p class="sub">The rows you start an offer from — the usual switches, a partner's usual order. Save one from any offer with “Save as a set”; pick it from “Start from a set…” on the next.</p></div>
+            </div>
+            <div class="panel"><div class="table-wrap"><table>
+              <thead><tr><th>Set</th><th class="num">Rows</th><th>What is in it</th><th class="num">Used</th></tr></thead>
+              <tbody id="sets-body"></tbody>
             </table></div></div>
           </div>
         </div>
@@ -450,7 +463,13 @@
       </div>
 
       <div class="panel">
-        <div class="panel-head"><h3>Items</h3><button class="btn sm" type="button" id="of-add">Add line</button></div>
+        <div class="panel-head"><h3>Items</h3>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <select id="of-set" style="max-width:220px; height:32px; padding:4px 8px; font-size:13px"></select>
+            <button class="btn quiet sm" type="button" id="of-set-save">Save as a set</button>
+            <button class="btn quiet sm" type="button" id="of-clear-empty">Remove empty rows</button>
+            <button class="btn sm" type="button" id="of-add">Add line</button>
+          </div></div>
         <div class="panel-pad" id="of-lines"></div>
         <div class="panel-pad" style="padding-top:0"><div class="totals" id="of-totals"></div></div>
       </div>

@@ -37,6 +37,7 @@ class SalesController extends Controller
 
         $client = Client::findOrFail($data['clientId']);
         $items = $this->buildItems($data['lines']);
+        $this->requireQuantity($items);
         $settings = CompanySetting::current();
 
         $paid = (float) ($data['paid'] ?? 0);
@@ -62,6 +63,7 @@ class SalesController extends Controller
                 'site' => $data['site'] ?? null,
                 'sold_by' => $data['soldBy'] ?? null,
                 'created_by' => auth()->id(),
+                'set_id' => $data['setId'] ?? null,
                 'notes' => $data['notes'] ?? null,
             ]);
             $tx->items()->createMany($items);
@@ -97,6 +99,7 @@ class SalesController extends Controller
         $data = $request->validate($this->offerRules());
         $client = Client::findOrFail($data['clientId']);
         $items = $this->buildItems($data['lines']);
+        $this->requireQuantity($items);
 
         $total = $this->itemsSubtotal($items) * (1 + $transaction->vat_pct / 100);
         $paid = $transaction->paid();
@@ -106,9 +109,11 @@ class SalesController extends Controller
 
         [$rc, $tc] = $this->codes($data);
         DB::transaction(function () use ($transaction, $data, $client, $items, $rc, $tc) {
-            // The counter and month stay, so the reference keeps its place in the sequence.
+            // The counter and month stay, so the reference keeps its place in the sequence. Once an
+            // offer has versions its reference is what ties them together, so it no longer changes.
+            $hasVersions = $transaction->version > 1 || $transaction->versions()->count() > 1;
             $transaction->update([
-                'ref_no' => $this->ref($transaction->yymm, $rc, $tc, $transaction->seq),
+                'ref_no' => $hasVersions ? $transaction->ref_no : $this->ref($transaction->yymm, $rc, $tc, $transaction->seq),
                 'region_code' => $rc, 'type_code' => $tc,
                 'client_id' => $client->id, 'client_name' => $client->name, 'client_type' => $client->type,
                 'region' => $data['region'], 'service_type' => $data['serviceType'],
@@ -126,6 +131,60 @@ class SalesController extends Controller
         });
 
         return response()->json(['id' => (string) $transaction->id, 'refNo' => $transaction->ref_no]);
+    }
+
+    /**
+     * The client asks for changes: the offer is read again as a new version
+     * (2611WD04-V2). The earlier versions stay as they were; money already
+     * taken moves to the new version, since it is the same job.
+     */
+    public function revise(Request $request, Transaction $transaction)
+    {
+        if ($transaction->status !== 'Quotation') {
+            return response()->json(['message' => 'Only a quotation can be revised.'], 409);
+        }
+        $data = $request->validate($this->offerRules());
+        $client = Client::findOrFail($data['clientId']);
+        $items = $this->buildItems($data['lines']);
+        $this->requireQuantity($items);
+
+        $tx = DB::transaction(function () use ($transaction, $data, $client, $items) {
+            $src = Transaction::lockForUpdate()->findOrFail($transaction->id);
+            $root = $src->rootRef();
+            $version = (int) $src->versions()->lockForUpdate()->max('version') + 1;
+            $vat = $src->vat_pct;
+
+            $paid = $src->paid();
+            $total = $this->itemsSubtotal($items) * (1 + $vat / 100);
+            if ($paid > $total + self::CENT) {
+                throw ValidationException::withMessages(['lines' => 'The new total ($'.number_format($total, 2).') is less than the $'.number_format($paid, 2).' already paid on this offer.']);
+            }
+
+            $new = Transaction::create([
+                'ref_no' => $root.'-V'.$version, 'root_ref' => $root, 'version' => $version,
+                'yymm' => $src->yymm, 'region_code' => $src->region_code, 'type_code' => $src->type_code, 'seq' => $src->seq,
+                'client_id' => $client->id, 'client_name' => $client->name, 'client_type' => $client->type,
+                'region' => $data['region'], 'service_type' => $data['serviceType'], 'status' => 'Quotation',
+                'vat_pct' => $vat,
+                'quotation_date' => Carbon::parse($data['date'])->toDateString(),
+                'due_date' => $data['dueDate'] ?? null,
+                'site' => $data['site'] ?? null,
+                'sold_by' => $data['soldBy'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'created_by' => auth()->id(),
+                'set_id' => $data['setId'] ?? $src->set_id,
+            ]);
+            $new->items()->createMany($items);
+
+            // Money and the stages it paid follow the job to its newest version.
+            $src->payments()->update(['transaction_id' => $new->id]);
+            $src->milestones()->whereNotNull('payment_id')->update(['transaction_id' => $new->id]);
+            $this->saveMilestones($new, $data['milestones'] ?? [], (int) $new->milestones()->max('position') + 1);
+
+            return $new;
+        });
+
+        return response()->json(['id' => (string) $tx->id, 'refNo' => $tx->ref_no], 201);
     }
 
     public function pay(Request $request, Transaction $transaction)
@@ -258,15 +317,18 @@ class SalesController extends Controller
 
             $today = now()->toDateString();
             $tx->status = $next;
+            $closed = 0;
             if ($next === 'Agreement') {
                 $tx->agreement_date = $today;
+                // Only one version can become the deal; the other quotations for the same job close.
+                $closed = $tx->versions()->where('id', '!=', $tx->id)->where('status', 'Quotation')->update(['status' => 'Cancelled']);
             }
             if ($next === 'Invoiced') {
                 $tx->invoice_date = $today;
             }
             $tx->save();
 
-            return response()->json(['ok' => true]);
+            return response()->json(['ok' => true, 'closedVersions' => $closed]);
         });
     }
 
@@ -382,7 +444,9 @@ class SalesController extends Controller
             'lines.*.productId' => 'nullable|integer',
             'lines.*.baseId' => 'nullable|integer',
             'lines.*.coverId' => 'nullable|integer',
-            'lines.*.qty' => 'required|integer|min:1',
+            // A row at 0 prints as an option the client could add; at least one row needs a quantity.
+            'lines.*.qty' => 'required|integer|min:0',
+            'setId' => 'nullable|integer|exists:offer_sets,id',
             'lines.*.unitPrice' => 'required|numeric|min:0',
             'lines.*.standardPrice' => 'nullable|numeric|min:0',
         ];
@@ -439,6 +503,13 @@ class SalesController extends Controller
         }
 
         return $items;
+    }
+
+    private function requireQuantity(array $items): void
+    {
+        if (! array_filter($items, fn ($i) => $i['qty'] > 0)) {
+            throw ValidationException::withMessages(['lines' => 'Give at least one row a quantity.']);
+        }
     }
 
     private function itemsSubtotal(array $items): float
