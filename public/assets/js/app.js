@@ -592,17 +592,21 @@ function openDrawer(title, html){
 function closeDrawer(){ $("drawer-overlay").hidden = true; }
 $("drawer-close").addEventListener("click", closeDrawer);
 
-[["drawer-overlay",closeDrawer],["form-overlay",closeForm],["composer",composerBackdrop],
- ["doc-overlay",function(){ $("doc-overlay").hidden=true; }],["palette",closePalette]].forEach(function(p){
-  $(p[0]).addEventListener("click", function(e){ if(e.target===$(p[0])) p[1](); });
-});
+/* Windows close only from their own Close / Cancel buttons (or Esc): a click outside
+   them does nothing, so a stray click never loses what was typed. The search palette
+   is not a form, so it still closes on an outside click. */
+$("palette").addEventListener("click", function(e){ if(e.target===$("palette")) closePalette(); });
 document.addEventListener("keydown", function(e){
   if(e.key==="Escape"){
     if(!$("palette").hidden) return closePalette();
     if(!$("doc-overlay").hidden) return ($("doc-overlay").hidden=true);
     if(!$("form-overlay").hidden) return closeForm();
     if(!$("drawer-overlay").hidden) return closeDrawer();
-    if(!$("composer").hidden) return composerBackdrop();
+    /* Esc only leaves an empty offer; one with something in it waits for Save or Discard. */
+    if(!$("composer").hidden){
+      if(!offerHasContent()) return closeComposer();
+      return toast("Your offer is still here — Save it when it is ready, or Discard to leave it");
+    }
   }
   if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); openPalette(); }
 });
@@ -1203,10 +1207,6 @@ $("composer").addEventListener("change", scheduleDraftSave);
 function requestCloseComposer(){
   if(offerHasContent() && state.offer.mode!=="edit" && !window.confirm("Discard this offer? What you have written here will be lost.")) return;
   clearDraft(); closeComposer();
-}
-function composerBackdrop(){
-  if(!offerHasContent()){ closeComposer(); return; }
-  toast("Your offer is still here — Save it when it is ready, or Discard to leave it");
 }
 
 /* ---------- Offer sets ---------- */
