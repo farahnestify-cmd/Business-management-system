@@ -43,6 +43,12 @@ class CompanySetting extends Model
             'termsQuotation' => (string) $this->terms_quotation,
             'termsAgreement' => (string) $this->terms_agreement,
             'termsInvoice' => (string) $this->terms_invoice,
+            'introText' => (string) $this->intro_text,
+            'offerNotes' => (string) $this->offer_notes,
+            'coverNote' => (string) $this->cover_note,
+            // Images are served by their own route; the version makes a new upload show at once.
+            'logo' => $this->logo_data ? url('/api/brand/logo').'?v='.substr(md5($this->logo_data), 0, 10) : '',
+            'hero' => $this->hero_data ? url('/api/brand/hero').'?v='.substr(md5($this->hero_data), 0, 10) : '',
         ];
     }
 }

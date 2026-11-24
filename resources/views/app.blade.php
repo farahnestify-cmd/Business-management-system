@@ -321,6 +321,22 @@
           </div>
         </div>
         <div class="section">
+          <div class="section-head"><div><h2>The branded offer</h2><p class="sub">The cover, the opening page and the back page of the Full quotation. The Plain version uses none of this; the logo also heads every other document.</p></div></div>
+          <div class="panel panel-pad">
+            <div class="grid g2">
+              <div class="field"><label>Logo</label><div class="brand-box" id="s-logo-box"></div></div>
+              <div class="field"><label>Cover photo</label><div class="brand-box" id="s-hero-box"></div></div>
+            </div>
+            <input type="file" id="s-image-file" accept="image/png,image/jpeg,image/webp" hidden>
+            <div class="grid" style="margin-top:14px">
+              <div class="field"><label for="s-intro">Opening paragraph</label><textarea id="s-intro" rows="4" placeholder="Thank you for considering Nestify for your smart home…"></textarea></div>
+              <div class="field"><label for="s-bullets">What the customer should know — one line each</label><textarea id="s-bullets" rows="5" placeholder="Prices include supply and programming&#10;Installation is scheduled after the deposit"></textarea></div>
+              <div class="field"><label for="s-cover-note">Small print across the foot of the cover</label><input id="s-cover-note" type="text" placeholder="Smart home systems · Ramallah · nestify.ps"></div>
+            </div>
+            <p class="tiny muted" style="margin-top:10px">Text is saved with the Save settings button below; images are saved as soon as you choose them.</p>
+          </div>
+        </div>
+        <div class="section">
           <div class="section-head"><div><h2>Document wording</h2><p class="sub">Shown at the foot of each document type.</p></div></div>
           <div class="panel panel-pad">
             <div class="grid">
@@ -472,7 +488,11 @@
   <div class="sheet" id="doc-sheet">
     <div class="sheet-head">
       <h3 id="doc-title">Document</h3>
-      <div style="display:flex; gap:8px">
+      <div style="display:flex; gap:8px; align-items:center">
+        <div class="segmented" id="doc-style">
+          <button type="button" data-t="brand" aria-pressed="true">Full</button>
+          <button type="button" data-t="plain">Plain</button>
+        </div>
         <button class="btn sm primary" type="button" id="doc-pdf">Download PDF</button>
         <button class="btn sm" type="button" id="doc-print">Print</button>
         <button class="btn quiet sm" type="button" id="doc-close">Close</button>

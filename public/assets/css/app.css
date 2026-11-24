@@ -332,7 +332,40 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 .p-item .mono{color:var(--text-2); font-size:12px}
 
 /* ---------------- Printable documents ---------------- */
-#doc{background:#FFFFFF; color:#161A16; padding:46px 48px 40px; font-size:12.5px}
+#doc{background:#FFFFFF; color:#161A16; font-size:12.5px}
+/* One .d-page is one page of the PDF; on screen they simply stack. */
+#doc .d-page{background:#FFFFFF; padding:46px 48px 40px; position:relative}
+#doc .d-page + .d-page{border-top:1px solid #E8EAE7}
+#doc .d-page-full{padding:0}
+#doc .d-page-bar{padding:0; display:flex; flex-direction:column; min-height:520px}
+#doc .d-body{padding:34px 48px 30px; flex:1 1 auto}
+#doc.paged .d-page{width:794px; min-height:1123px; box-sizing:border-box; border-top:none}
+#doc.paged .d-page-full, #doc.paged .d-page-bar{height:1123px}
+#doc .d-bar{display:flex; justify-content:space-between; align-items:center; padding:22px 48px 16px; border-bottom:1px solid #E8EAE7}
+#doc .d-word{font-size:15px; font-weight:700; letter-spacing:.26em; text-transform:uppercase; color:#8B928B}
+#doc .d-logo{height:26px; width:auto; object-fit:contain}
+#doc .d-logo-big{height:30px; width:auto; object-fit:contain; display:block; margin-bottom:6px}
+#doc .d-bar-r{font-size:9.5px; letter-spacing:.1em; color:#8B928B}
+#doc .d-footbar{display:flex; justify-content:space-between; padding:14px 48px 20px; border-top:1px solid #E8EAE7; font-size:9px; color:#8B928B; letter-spacing:.04em}
+#doc .d-cover{height:100%; min-height:520px; background-color:#23262A; background-size:cover; background-position:center;
+  color:#FFFFFF; display:flex; flex-direction:column; justify-content:space-between; padding:44px 46px; box-sizing:border-box}
+#doc .d-cover-top{display:flex; justify-content:space-between; font-size:10.5px; line-height:1.9; color:rgba(255,255,255,.88)}
+#doc .d-cover-top .r{text-align:right}
+#doc .d-cover-mid{padding:40px 0}
+#doc .d-cover-mid img{max-width:60%; max-height:110px; object-fit:contain; display:block}
+#doc .d-cover-word{font-size:58px; font-weight:300; letter-spacing:-0.03em; line-height:1}
+#doc .d-cover-tag{margin-top:16px; font-size:13px; color:rgba(255,255,255,.75)}
+#doc .d-cover-foot{font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:rgba(255,255,255,.6)}
+#doc .d-back{height:100%; min-height:520px; display:flex; flex-direction:column; justify-content:center; padding:0 60px; background:#FFFFFF; box-sizing:border-box}
+#doc .d-back img{max-width:48%; max-height:90px; object-fit:contain}
+#doc .d-back-tag{margin-top:14px; font-size:11.5px; color:#8B928B}
+/* On the branded pages the bar is the letterhead, so the sheet's own wordmark and contact strip would repeat it. */
+#doc .d-page-bar .d-mark, #doc .d-page-bar .d-foot{display:none}
+#doc .d-page-bar .d-top{justify-content:flex-end; padding-bottom:16px}
+#doc .d-intro{font-size:12.5px; line-height:1.75; color:#3C423C; margin:0; white-space:pre-wrap}
+#doc .d-bullets{margin:26px 0 0; padding-left:18px; font-size:11.5px; line-height:2; color:#3C423C}
+.brand-box{display:flex; gap:10px; align-items:center; flex-wrap:wrap; min-height:44px}
+.brand-box img{max-height:44px; max-width:180px; object-fit:contain; border:1px solid var(--line); border-radius:var(--radius); background:#fff; padding:4px}
 #doc .d-top{display:flex; justify-content:space-between; align-items:flex-start; gap:24px; padding-bottom:20px; border-bottom:1.5px solid #161A16}
 #doc .d-mark b{display:block; font-size:15px; font-weight:700; letter-spacing:.3em; text-transform:uppercase}
 #doc .d-mark span{display:block; font-size:9px; letter-spacing:.18em; text-transform:uppercase; color:#6A716A; margin-top:5px}
@@ -365,6 +398,9 @@ svg.chart g.col:hover rect.bar{opacity:.82}
   #doc,#doc *{visibility:visible}
   .overlay{position:static; background:none; overflow:visible}
   #doc{position:absolute; left:0; top:0; width:100%; padding:0}
+  #doc .d-page{break-after:page; border-top:none}
+  #doc .d-page:last-child{break-after:auto}
+  #doc .d-page-full{height:100vh}
 }
 
 /* ---------------- Sign-in and installer pages ---------------- */

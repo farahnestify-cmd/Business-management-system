@@ -351,6 +351,7 @@ function reload(){
     });
     state.user = d.user;
     state.settings = Object.assign({}, DEFAULTS, d.settings || {});
+    prepareWhiteLogo();
     state.ready = true;
     setSync(true);
     applyBrand(); render();
@@ -1235,7 +1236,33 @@ $("of-save").addEventListener("click", function(){
 /* ============================================================
    18. DOCUMENTS
    ============================================================ */
+var docState={t:null, kind:"Quotation", style:"brand"};
+/* The cover is dark, so it carries a white copy of the logo, made once in the browser. */
+var whiteLogo={src:"", url:""};
+function prepareWhiteLogo(){
+  var src=state.settings.logo||"";
+  if(src===whiteLogo.src) return;
+  whiteLogo={src:src, url:""};
+  if(!src) return;
+  var img=new Image();
+  img.onload=function(){
+    if(whiteLogo.src!==src) return;
+    var c=document.createElement("canvas"); c.width=img.naturalWidth; c.height=img.naturalHeight;
+    var g=c.getContext("2d"); g.drawImage(img,0,0); g.globalCompositeOperation="source-in"; g.fillStyle="#FFFFFF"; g.fillRect(0,0,c.width,c.height);
+    whiteLogo.url=c.toDataURL("image/png");
+  };
+  img.src=src;
+}
+function docPage(inner, cls){ return '<div class="d-page'+(cls?" "+cls:"")+'">'+inner+'</div>'; }
+function docBrandBar(s){
+  return '<div class="d-bar">'+(s.logo ? '<img class="d-logo" src="'+esc(s.logo)+'" alt="'+esc(s.name||"")+'">' : '<span class="d-word">'+esc(s.name||"Nestify")+'</span>')+
+    '<span class="d-bar-r">'+esc(s.tagline||"")+'</span></div>';
+}
+function docFootBar(s, page, of){
+  return '<div class="d-footbar"><span>'+[s.address,s.email,s.phone].filter(Boolean).map(esc).join("  |  ")+'</span><span>Page '+page+' of '+of+'</span></div>';
+}
 function openDoc(t, kind){
+  docState.t=t; docState.kind=kind;
   var s=state.settings;
   var refMap={"Quotation":t.refNo, "Agreement":agreementRef(t.refNo), "Invoice":invoiceRef(t.refNo),
               "Delivery Note":invoiceRef(t.refNo), "Receipt":invoiceRef(t.refNo)};
@@ -1264,9 +1291,10 @@ function openDoc(t, kind){
         '<div class="r"><span>Balance due</span><span>'+money(txBalance(t))+'</span></div>' : '')+
     '</div>' : '';
 
-  $("doc").innerHTML =
+  var sheet =
     '<div class="d-top">'+
-      '<div class="d-mark"><b>'+esc(s.name||"Nestify")+'</b><span>'+esc(s.tagline||"")+'</span></div>'+
+      '<div class="d-mark">'+(s.logo ? '<img class="d-logo-big" src="'+esc(s.logo)+'" alt="'+esc(s.name||"")+'">' : '<b>'+esc(s.name||"Nestify")+'</b>')+
+        '<span>'+esc(s.tagline||"")+'</span></div>'+
       '<div class="d-kind"><div class="k">'+esc(kind)+'</div><div class="r">'+esc(refMap[kind])+'</div>'+
         '<div class="dt">'+fmtDate(dateMap[kind]||todayISO())+'</div></div>'+
     '</div>'+
@@ -1295,9 +1323,37 @@ function openDoc(t, kind){
       '<div class="d-sign"><div>Client signature</div><div>For '+esc(s.name||"Nestify")+'</div></div>' : '')+
     '<div class="d-foot"><span>'+[s.phone,s.email,s.website].filter(Boolean).map(esc).join("  ·  ")+'</span><span>'+esc(s.address||"")+'</span></div>';
 
+  /* Full quotation: cover, opening page, the offer, back page. Every other document is one sheet. */
+  var brand = docState.style==="brand" && kind==="Quotation";
+  if(!brand){
+    $("doc").innerHTML = docPage(sheet);
+  } else {
+    var bullets=String(s.offerNotes||"").split("\n").map(function(x){ return x.trim(); }).filter(Boolean);
+    var logoOrName = function(dark){ return s.logo ? '<img src="'+esc(dark ? s.logo : (whiteLogo.url||s.logo))+'" alt="'+esc(s.name||"")+'">'
+      : '<div class="d-cover-word"'+(dark?' style="color:#161A16"':'')+'>'+esc(s.name||"Nestify")+'</div>'; };
+    var cover =
+      '<div class="d-cover"'+(s.hero ? ' style="background-image:linear-gradient(180deg, rgba(12,14,12,.55), rgba(12,14,12,.85)), url(\''+esc(s.hero)+'\')"' : '')+'>'+
+        '<div class="d-cover-top"><div><div>Subject: Price offer</div><div>To: '+esc(t.clientName||"")+'</div>'+
+          (t.site ? '<div>Site: '+esc(t.site)+'</div>' : '')+'<div>Date issued: '+fmtDate(dateMap[kind]||todayISO())+'</div></div>'+
+          '<div class="r">Offer No.: '+esc(refMap[kind])+'</div></div>'+
+        '<div class="d-cover-mid">'+logoOrName(false)+'<div class="d-cover-tag">'+esc(s.tagline||"")+'</div></div>'+
+        '<div class="d-cover-foot">'+esc(s.coverNote||"")+'</div>'+
+      '</div>';
+    var notes = docBrandBar(s)+'<div class="d-body">'+
+        (s.introText ? '<p class="d-intro">'+esc(s.introText)+'</p>' : '')+
+        (bullets.length ? '<ul class="d-bullets">'+bullets.map(function(b){ return '<li>'+esc(b)+'</li>'; }).join("")+'</ul>' : '')+
+      '</div>'+docFootBar(s, 2, 4);
+    var back = '<div class="d-back">'+logoOrName(true)+'<div class="d-back-tag">'+esc(s.tagline||"")+'</div></div>';
+    $("doc").innerHTML = docPage(cover, "d-page-full") + docPage(notes, "d-page-bar") +
+      docPage(docBrandBar(s)+'<div class="d-body">'+sheet+'</div>'+docFootBar(s, 3, 4), "d-page-bar") + docPage(back, "d-page-full");
+  }
+
   $("doc-title").textContent = kind + " · " + refMap[kind];
+  $("doc-style").hidden = kind!=="Quotation";
+  $("doc-style").querySelectorAll("button").forEach(function(b){ b.setAttribute("aria-pressed", String(b.dataset.t===docState.style)); });
   $("doc-overlay").hidden=false;
 }
+wireSegmented("doc-style", function(v){ docState.style=v; if(docState.t) openDoc(docState.t, docState.kind); });
 function addDays(iso, n){
   var d=parseISO(iso)||new Date();
   d.setDate(d.getDate()+n);
@@ -1327,20 +1383,26 @@ function docToPdf(){
   /* Drawn off-screen at A4 width (794px) so the PDF never picks up the panel's
      scrollbar or cropped height; a long document runs onto further pages. */
   var stage=document.createElement("div");
-  stage.id="doc"; stage.style.cssText="position:fixed; left:-12000px; top:0; width:794px; background:#FFFFFF";
+  stage.id="doc"; stage.className="paged"; stage.style.cssText="position:fixed; left:-12000px; top:0; width:794px; background:#FFFFFF";
   stage.innerHTML=$("doc").innerHTML;
   $("doc").id="doc-live";
   document.body.appendChild(stage);
   var cleanup=function(){ if(stage.parentNode) stage.parentNode.removeChild(stage); var live=$("doc-live"); if(live) live.id="doc"; };
-  return window.html2canvas(stage, {scale:2, backgroundColor:"#FFFFFF", width:794, windowWidth:794, logging:false}).then(function(canvas){
-    cleanup();
-    var pdf=new window.jspdf.jsPDF({unit:"pt", format:"a4", orientation:"portrait"});
-    var pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
-    var img=canvas.toDataURL("image/jpeg", 0.94), ih=canvas.height*pw/canvas.width, y=0;
-    pdf.addImage(img, "JPEG", 0, 0, pw, ih);
-    for(var left=ih-ph; left>1; left-=ph){ y-=ph; pdf.addPage(); pdf.addImage(img, "JPEG", 0, y, pw, ih); }
-    return pdf;
-  }, function(e){ cleanup(); throw e; });
+  var pages=[].slice.call(stage.querySelectorAll(".d-page"));
+  var pdf=new window.jspdf.jsPDF({unit:"pt", format:"a4", orientation:"portrait"});
+  var pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight(), first=true;
+  /* Each page of the document becomes a PDF page; only one that really runs long is split. */
+  var shoot=function(i){
+    if(i>=pages.length) return Promise.resolve(pdf);
+    return window.html2canvas(pages[i], {scale:2, backgroundColor:"#FFFFFF", width:794, windowWidth:794, logging:false, useCORS:true}).then(function(canvas){
+      if(!first) pdf.addPage(); first=false;
+      var img=canvas.toDataURL("image/jpeg", 0.94), ih=canvas.height*pw/canvas.width, y=0;
+      pdf.addImage(img, "JPEG", 0, 0, pw, ih);
+      for(var left=ih-ph; left>1; left-=ph){ y-=ph; pdf.addPage(); pdf.addImage(img, "JPEG", 0, y, pw, ih); }
+      return shoot(i+1);
+    });
+  };
+  return shoot(0).then(function(r){ cleanup(); return r; }, function(e){ cleanup(); throw e; });
 }
 function docFileName(){
   var t=String($("doc-title").textContent||"Document");
@@ -2070,17 +2132,60 @@ function editEmployee(e){
    23. SETTINGS
    ============================================================ */
 var settingsDirty=false;
+/* Logo and cover photo: scaled down in the browser before upload so they stay light. */
+var brandTarget=null;
+function renderBrandImages(){
+  [["logo","s-logo-box","Logo"],["hero","s-hero-box","Cover photo"]].forEach(function(x){
+    var url=state.settings[x[0]], box=$(x[1]); if(!box) return;
+    box.innerHTML=(url ? '<img src="'+esc(url)+'" alt="'+x[2]+'">' : '<span class="tiny faint">None yet</span>')+
+      (isOwner() ? '<button class="btn sm" type="button" data-up="'+x[0]+'">'+(url?"Replace":"Upload")+'</button>'+
+        (url ? '<button class="btn quiet sm" type="button" data-rm="'+x[0]+'">Remove</button>' : '') : '');
+  });
+  document.querySelectorAll("[data-up]").forEach(function(b){ b.onclick=function(){ brandTarget=b.dataset.up; $("s-image-file").value=""; $("s-image-file").click(); }; });
+  document.querySelectorAll("[data-rm]").forEach(function(b){ b.onclick=function(){
+    api("DELETE", "brand/"+b.dataset.rm).then(function(saved){ state.settings=Object.assign({}, state.settings, saved); renderBrandImages(); toast("Removed"); })
+      .catch(function(e){ toast(e.message, true); });
+  }; });
+}
+function shrinkImage(file, maxW, keepPng){
+  return new Promise(function(ok, fail){
+    var r=new FileReader();
+    r.onerror=function(){ fail(new Error("Could not read that file")); };
+    r.onload=function(){
+      var img=new Image();
+      img.onerror=function(){ fail(new Error("That file is not an image")); };
+      img.onload=function(){
+        var w=Math.min(maxW, img.naturalWidth), h=Math.round(img.naturalHeight*w/img.naturalWidth);
+        var c=document.createElement("canvas"); c.width=w; c.height=h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        ok(keepPng ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", 0.85));
+      };
+      img.src=r.result;
+    };
+    r.readAsDataURL(file);
+  });
+}
+$("s-image-file").addEventListener("change", function(){
+  var f=this.files[0], which=brandTarget; if(!f || !which) return;
+  /* A logo keeps its transparency; a cover photo becomes a compact JPEG. */
+  shrinkImage(f, which==="logo" ? 800 : 1600, which==="logo").then(function(data){
+    return api("PUT", "brand/"+which, {data:data});
+  }).then(function(saved){ state.settings=Object.assign({}, state.settings, saved); prepareWhiteLogo(); renderBrandImages(); toast(which==="logo" ? "Logo saved" : "Cover photo saved"); })
+    .catch(function(e){ toast(e.message, true); });
+});
 function renderSettings(){
+  renderBrandImages();
   if(settingsDirty) return;
   var s=state.settings;
   var map={"s-name":s.name,"s-tagline":s.tagline,"s-phone":s.phone,"s-email":s.email,"s-website":s.website,
     "s-address":s.address,"s-vat":num(s.vatPct),"s-validity":num(s.validityDays),
     "s-terms-q":s.termsQuotation,"s-terms-a":s.termsAgreement,"s-terms-i":s.termsInvoice,
+    "s-intro":s.introText,"s-bullets":s.offerNotes,"s-cover-note":s.coverNote,
     "s-overdue":num(s.overdueDays),"s-stale":num(s.staleDays),"s-variance":num(s.varianceFlag)};
   Object.keys(map).forEach(function(id){ var n=$(id); if(n) n.value = map[id]==null?"":map[id]; });
 }
 ["s-name","s-tagline","s-phone","s-email","s-website","s-address","s-vat","s-validity",
- "s-terms-q","s-terms-a","s-terms-i","s-overdue","s-stale","s-variance"].forEach(function(id){
+ "s-terms-q","s-terms-a","s-terms-i","s-intro","s-bullets","s-cover-note","s-overdue","s-stale","s-variance"].forEach(function(id){
   var n=$(id); if(n) n.addEventListener("input", function(){ settingsDirty=true; $("s-saved").textContent=""; });
 });
 $("s-save").addEventListener("click", function(){
@@ -2088,6 +2193,7 @@ $("s-save").addEventListener("click", function(){
     name:val("s-name")||"Nestify", tagline:val("s-tagline"), phone:val("s-phone"), email:val("s-email"),
     website:val("s-website"), address:val("s-address"), vatPct:valNum("s-vat"), validityDays:valNum("s-validity")||14,
     termsQuotation:val("s-terms-q"), termsAgreement:val("s-terms-a"), termsInvoice:val("s-terms-i"),
+    introText:$("s-intro").value.trim(), offerNotes:$("s-bullets").value.trim(), coverNote:val("s-cover-note"),
     overdueDays:valNum("s-overdue")||14, staleDays:valNum("s-stale")||21, varianceFlag:valNum("s-variance")||15
   };
   api("PUT", "settings", data).then(function(saved){

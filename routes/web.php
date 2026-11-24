@@ -23,6 +23,7 @@ Route::middleware('auth')->group(function () {
     // JSON API used by public/assets/js/app.js (session cookie + CSRF header).
     Route::prefix('api')->group(function () {
         Route::get('bootstrap', BootstrapController::class);
+        Route::get('brand/{which}', [SettingsController::class, 'image'])->whereIn('which', ['logo', 'hero']);
 
         Route::post('transactions', [SalesController::class, 'store']);
         Route::post('transactions/{transaction}/payments', [SalesController::class, 'pay']);
@@ -45,6 +46,8 @@ Route::middleware('auth')->group(function () {
 
         Route::middleware('owner')->group(function () {
             Route::put('settings', [SettingsController::class, 'update']);
+            Route::put('brand/{which}', [SettingsController::class, 'saveImage'])->whereIn('which', ['logo', 'hero']);
+            Route::delete('brand/{which}', [SettingsController::class, 'removeImage'])->whereIn('which', ['logo', 'hero']);
             Route::delete('payments/{payment}', [SalesController::class, 'destroyPayment']);
             Route::get('backup', [DataController::class, 'backup']);
             Route::post('restore', [DataController::class, 'restore']);

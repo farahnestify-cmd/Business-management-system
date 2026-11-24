@@ -25,6 +25,9 @@ class SettingsController extends Controller
             'termsQuotation' => 'nullable|string|max:5000',
             'termsAgreement' => 'nullable|string|max:5000',
             'termsInvoice' => 'nullable|string|max:5000',
+            'introText' => 'nullable|string|max:5000',
+            'offerNotes' => 'nullable|string|max:5000',
+            'coverNote' => 'nullable|string|max:255',
         ]);
 
         $s = CompanySetting::current();
@@ -43,7 +46,46 @@ class SettingsController extends Controller
             'terms_quotation' => $data['termsQuotation'] ?? null,
             'terms_agreement' => $data['termsAgreement'] ?? null,
             'terms_invoice' => $data['termsInvoice'] ?? null,
+            'intro_text' => $data['introText'] ?? null,
+            'offer_notes' => $data['offerNotes'] ?? null,
+            'cover_note' => $data['coverNote'] ?? null,
         ])->save();
+
+        return response()->json($s->toApi());
+    }
+
+    /** The logo or cover photo, as the image itself. */
+    public function image(string $which)
+    {
+        $data = CompanySetting::current()->{$which.'_data'};
+        if (! $data || ! preg_match('#^data:(image/(?:png|jpeg|webp));base64,(.+)$#s', $data, $m)) {
+            abort(404);
+        }
+
+        return response(base64_decode($m[2]), 200, [
+            'Content-Type' => $m[1],
+            'Cache-Control' => 'private, max-age=31536000',
+        ]);
+    }
+
+    public function saveImage(Request $request, string $which)
+    {
+        $data = $request->validate(['data' => 'required|string|max:4000000'])['data'];
+        if (! preg_match('#^data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$#', $data)) {
+            return response()->json(['message' => 'Choose a PNG, JPG or WebP image.'], 422);
+        }
+        $s = CompanySetting::current();
+        $s->{$which.'_data'} = $data;
+        $s->save();
+
+        return response()->json($s->toApi());
+    }
+
+    public function removeImage(string $which)
+    {
+        $s = CompanySetting::current();
+        $s->{$which.'_data'} = null;
+        $s->save();
 
         return response()->json($s->toApi());
     }
