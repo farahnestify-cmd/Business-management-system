@@ -30,6 +30,11 @@ class Transaction extends Model
         return $this->hasMany(Payment::class)->orderBy('date')->orderBy('id');
     }
 
+    public function milestones(): HasMany
+    {
+        return $this->hasMany(Milestone::class)->orderBy('position')->orderBy('id');
+    }
+
     public function subtotal(): float
     {
         return (float) $this->items->sum(fn ($li) => $li->qty * $li->unit_price);
@@ -63,6 +68,7 @@ class Transaction extends Model
             'vatPct' => (float) $this->vat_pct,
             'lineItems' => $this->items->map(fn ($li) => $li->toApi())->values()->all(),
             'payments' => $this->payments->map(fn ($p) => $p->toApi())->values()->all(),
+            'milestones' => $this->milestones->map(fn ($m) => $m->toApi())->values()->all(),
             'quotationDate' => self::d($this->quotation_date),
             'agreementDate' => self::d($this->agreement_date),
             'invoiceDate' => self::d($this->invoice_date),

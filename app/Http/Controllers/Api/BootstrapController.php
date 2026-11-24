@@ -37,7 +37,7 @@ class BootstrapController extends Controller
             'products' => $api(Product::orderBy('name')->get()),
             'bases' => $api(Base::orderBy('line')->orderBy('name')->get()),
             'covers' => $api(Cover::orderBy('line')->orderBy('name')->get()),
-            'transactions' => $api(Transaction::with(['items', 'payments'])->orderByDesc('created_at')->orderByDesc('id')->get()),
+            'transactions' => $api(Transaction::with(['items', 'payments', 'milestones.payment'])->orderByDesc('created_at')->orderByDesc('id')->get()),
             'expenses' => $api(Expense::orderByDesc('date')->orderByDesc('id')->get()),
             'suppliers' => $api(Supplier::orderBy('name')->get()),
             'deliveries' => $api(Delivery::with(['line', 'user'])->orderByDesc('delivered_on')->orderByDesc('id')->get()),

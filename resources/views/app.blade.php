@@ -400,6 +400,16 @@
         <div class="panel-pad" style="padding-top:0"><div class="totals" id="of-totals"></div></div>
       </div>
 
+      <div class="panel">
+        <div class="panel-head"><h3>Payment schedule</h3>
+          <div style="display:flex; gap:8px">
+            <button class="btn sm" type="button" id="of-ms-standard">Standard 40 / 50 / 10</button>
+            <button class="btn sm" type="button" id="of-ms-add">Add stage</button>
+          </div>
+        </div>
+        <div class="panel-pad" id="of-milestones"></div>
+      </div>
+
       <div class="grid g3">
         <div class="field" id="of-paid-wrap"><label for="of-paid">Paid now</label><input id="of-paid" type="number" min="0" step="1" value="0" class="mono"></div>
         <div class="field" id="of-method-wrap"><label for="of-method">Method</label><select id="of-method"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>

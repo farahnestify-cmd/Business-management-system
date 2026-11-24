@@ -379,3 +379,6 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 .remember{display:flex; align-items:center; gap:8px; margin:0; text-transform:none; letter-spacing:0; font-size:13px; font-weight:500; color:var(--text-2)}
 .remember input{width:auto}
 .rail-foot form{margin:0}
+
+/* Long sheets scroll instead of squeezing their panels. */
+.sheet-body > *{flex-shrink:0}

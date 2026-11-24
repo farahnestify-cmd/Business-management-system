@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\CompanySetting;
 use App\Models\Cover;
 use App\Models\Delivery;
+use App\Models\Milestone;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Transaction;
@@ -59,11 +60,18 @@ class SalesController extends Controller
                 'notes' => $data['notes'] ?? null,
             ]);
             $tx->items()->createMany($items);
+            $stages = $this->saveMilestones($tx, $data['milestones'] ?? []);
             if ($paid > 0) {
-                $tx->payments()->create([
+                $payment = $tx->payments()->create([
                     'date' => $date->toDateString(), 'amount' => $paid,
                     'method' => $data['method'] ?? 'Cash', 'type' => 'Down Payment',
                 ]);
+                // A deposit taken with the offer settles the first stage when it is that stage's amount.
+                $first = $stages[0] ?? null;
+                if ($first && abs($first->amount - $paid) <= self::CENT) {
+                    $first->update(['payment_id' => $payment->id]);
+                    $payment->update(['type' => $first->label]);
+                }
             }
 
             return $tx;
@@ -105,6 +113,9 @@ class SalesController extends Controller
             ]);
             $transaction->items()->delete();
             $transaction->items()->createMany($items);
+            // Paid stages are history and stay; the open ones are replaced by what was sent.
+            $transaction->milestones()->whereNull('payment_id')->delete();
+            $this->saveMilestones($transaction, $data['milestones'] ?? [], (int) $transaction->milestones()->max('position') + 1);
         });
 
         return response()->json(['id' => (string) $transaction->id, 'refNo' => $transaction->ref_no]);
@@ -171,6 +182,42 @@ class SalesController extends Controller
                 'method' => $data['method'],
                 'type' => 'Refund',
             ]);
+
+            return response()->json(['ok' => true]);
+        });
+    }
+
+    /** Record the payment for one stage of the schedule. */
+    public function payMilestone(Request $request, Transaction $transaction, Milestone $milestone)
+    {
+        $data = $request->validate([
+            'method' => 'required|in:Cash,Bank Transfer,Cheque',
+            'date' => 'nullable|date',
+        ]);
+        abort_unless($milestone->transaction_id === $transaction->id, 404);
+
+        return DB::transaction(function () use ($transaction, $milestone, $data) {
+            $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
+            $stage = Milestone::lockForUpdate()->findOrFail($milestone->id);
+            if ($tx->status === 'Cancelled') {
+                return response()->json(['message' => 'This deal is cancelled.'], 409);
+            }
+            if ($stage->payment_id) {
+                return response()->json(['message' => 'This stage is already paid.'], 409);
+            }
+            $balance = $tx->total() - $tx->paid();
+            if ($stage->amount > $balance + self::CENT) {
+                throw ValidationException::withMessages(['amount' => 'This stage is $'.number_format($stage->amount, 2)
+                    .' but only $'.number_format(max(0, $balance), 2).' is still owed. Record the remaining amount as a normal payment instead.']);
+            }
+
+            $payment = $tx->payments()->create([
+                'date' => $data['date'] ?? now()->toDateString(),
+                'amount' => $stage->amount,
+                'method' => $data['method'],
+                'type' => $stage->label,
+            ]);
+            $stage->update(['payment_id' => $payment->id]);
 
             return response()->json(['ok' => true]);
         });
@@ -288,9 +335,29 @@ class SalesController extends Controller
         });
     }
 
+    /** @return Milestone[] */
+    private function saveMilestones(Transaction $tx, array $stages, int $start = 0): array
+    {
+        $out = [];
+        foreach (array_values($stages) as $i => $m) {
+            $out[] = $tx->milestones()->create([
+                'position' => $start + $i,
+                'label' => trim($m['label'] ?? '') ?: 'Stage '.($start + $i + 1),
+                'amount' => round((float) $m['amount'], 2),
+                'due_date' => $m['dueDate'] ?? null,
+            ]);
+        }
+
+        return $out;
+    }
+
     private function offerRules(): array
     {
         return [
+            'milestones' => 'nullable|array|max:20',
+            'milestones.*.label' => 'nullable|string|max:120',
+            'milestones.*.amount' => 'required|numeric|gt:0',
+            'milestones.*.dueDate' => 'nullable|date',
             'clientId' => 'required|integer|exists:clients,id',
             'region' => 'required|in:West Bank,48 Region',
             'dealType' => 'required|in:Direct,Partner',

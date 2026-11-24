@@ -662,6 +662,16 @@ function buildQueue(){
         go:function(){ setView("sales"); openTx(t.id); }});
     }
   });
+  state.transactions.filter(isLive).forEach(function(t){
+    (t.milestones||[]).forEach(function(m){
+      if(m.paid || !m.dueDate) return;
+      var late=daysSince(m.dueDate);
+      if(late==null || late<=0) return;
+      items.push({sev:"bad", area:"sales", title:t.clientName+" — "+m.label+" is overdue",
+        detail:t.refNo+" · due "+fmtDate(m.dueDate)+" · "+late+" day"+(late>1?"s":"")+" late", value:money(m.amount),
+        go:function(){ setView("sales"); openTx(t.id); }});
+    });
+  });
   state.transactions.filter(function(t){ return refundDue(t)>0.004; }).forEach(function(t){
     items.push({sev:"bad", area:"sales", title:"Refund "+money(refundDue(t))+" to "+t.clientName,
       detail:t.refNo+(t.status==="Cancelled" ? " · cancelled after payment" : " · paid more than the total"), value:money(refundDue(t)),
@@ -864,6 +874,14 @@ function openTx(id){
       (due>0.004 ? '<div class="r grand"><span class="l">Refund due to client</span><span class="v">'+money(due)+'</span></div>'
         : (live ? '<div class="r grand"><span class="l">Balance</span><span class="v">'+money(Math.max(0,txBalance(t)))+'</span></div>' : ''))+
     '</div>'+
+    ((t.milestones||[]).length ? '<div class="section"><p class="eyebrow">Payment schedule</p><div class="panel"><div class="table-wrap"><table><tbody>'+
+      t.milestones.map(function(m){
+        var overdue = live && !m.paid && m.dueDate && daysSince(m.dueDate)>0;
+        return '<tr><td>'+esc(m.label)+'</td><td class="tiny muted">'+(m.dueDate ? fmtDate(m.dueDate) : "no date")+'</td>'+
+          '<td>'+(m.paid ? '<span class="pill good">Paid '+fmtDate(m.paidDate)+'</span>' : (overdue ? '<span class="pill bad">Overdue</span>' : '<span class="pill neutral">Due</span>'))+'</td>'+
+          '<td class="num">'+money(m.amount)+'</td>'+
+          '<td style="text-align:right">'+(!m.paid && live ? '<button class="btn sm" type="button" data-ms="'+m.id+'">Record</button>' : '')+'</td></tr>';
+      }).join("")+'</tbody></table></div></div></div>' : '')+
     '<div class="section"><p class="eyebrow">Payments</p><div class="panel"><div class="table-wrap"><table><tbody>'+
       (pays.length ? pays.map(function(p){
         return '<tr><td>'+fmtDate(p.date)+'</td><td>'+esc(p.type||"Payment")+'</td><td>'+esc(p.method||"")+'</td><td class="num">'+money(p.amount)+'</td>'+
@@ -923,6 +941,14 @@ function openTx(id){
     });
   });
   if($("tx-edit")) $("tx-edit").addEventListener("click", function(){ closeDrawer(); openComposer(t); });
+  $("drawer-body").querySelectorAll("[data-ms]").forEach(function(b){
+    b.addEventListener("click", function(){
+      var m=byId(t.milestones||[], b.dataset.ms); if(!m) return;
+      /* The method chosen in the payment box below applies to the stage too. */
+      send("POST", "transactions/"+t.id+"/milestones/"+m.id+"/pay", {method:$("tx-meth") ? val("tx-meth") : "Bank Transfer", date:todayISO()},
+        function(){ openTx(t.id); }, money(m.amount)+" recorded for "+m.label);
+    });
+  });
 }
 function advance(t, next){
   if(next==="Cancelled" && !window.confirm("Cancel "+t.refNo+"? The deal stays on record as cancelled."+
@@ -946,6 +972,8 @@ function advance(t, next){
 function openComposer(tx){
   var editing = tx && tx.id ? tx : null;
   state.offer={editId: editing ? editing.id : null, ref: editing ? editing.refNo : "",
+    paidStages: editing ? (editing.milestones||[]).filter(function(m){ return m.paid; }) : [],
+    milestones: editing ? (editing.milestones||[]).filter(function(m){ return !m.paid; }).map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||""}; }) : [],
     lines: editing ? (editing.lineItems||[]).map(function(li){
       return {kind:li.kind, productId:li.productId||"", baseId:li.baseId||"", coverId:li.coverId||"", qty:num(li.qty), unitPrice:num(li.unitPrice), touched:true};
     }) : [{kind:"product", productId:"", baseId:"", coverId:"", qty:1, unitPrice:0, touched:false}]};
@@ -958,6 +986,7 @@ function openComposer(tx){
   $("of-due").value = editing ? (editing.dueDate||"") : "";
   $("composer").hidden=false;
   renderComposer();
+  renderMilestones();
   if(editing){
     $("of-client").value=editing.clientId||"";
     $("of-region").value=editing.region||"West Bank";
@@ -1080,7 +1109,77 @@ function renderComposer(){
     (vat>0 ? '<div class="r"><span class="l">VAT '+num(state.settings.vatPct)+'%</span><span class="mono">'+money(vat)+'</span></div>' : '')+
     '<div class="r grand"><span class="l">Total</span><span class="v">'+money(subtotal+vat)+'</span></div>'+
     (state.offer.editId ? '' : '<div class="r"><span class="l">Balance after payment now</span><span class="mono">'+money(subtotal+vat-paid)+'</span></div>');
+  refreshMilestoneSum();
 }
+/* ---------- Payment schedule on the offer ---------- */
+function offerTotal(){
+  var done=state.offer.lines.filter(lineReady);
+  return sum(done,function(l){ return num(l.qty)*num(l.unitPrice); })*(1+num(state.settings.vatPct)/100);
+}
+function renderMilestones(){
+  var box=$("of-milestones"); if(!box) return;
+  var ms=state.offer.milestones||[], locked=state.offer.paidStages||[];
+  var lockedHtml = locked.map(function(m){
+    return '<div class="li" style="grid-template-columns:minmax(0,2fr) 120px 150px 30px">'+
+      '<div><div class="lbl">Stage</div><div class="fixed" style="font-family:inherit">'+esc(m.label)+'</div></div>'+
+      '<div><div class="lbl">Amount</div><div class="fixed">'+money(m.amount)+'</div></div>'+
+      '<div><div class="lbl">Status</div><div style="padding-top:5px"><span class="pill good">Paid '+fmtDate(m.paidDate)+'</span></div></div><div></div></div>';
+  }).join("");
+  if(!ms.length && !locked.length){
+    box.innerHTML='<p class="tiny muted">No stages — the whole amount is treated as one payment. On a project, set the stages and Today will chase each one as it falls due.</p>';
+    return;
+  }
+  var total=offerTotal(), scheduled=sum(locked,function(m){ return m.amount; })+sum(ms,function(m){ return m.amount; });
+  var off=Math.abs(scheduled-total)>0.5;
+  box.innerHTML = lockedHtml + ms.map(function(m,i){
+    return '<div class="li" data-m="'+i+'" style="grid-template-columns:minmax(0,2fr) 120px 150px 30px">'+
+      '<div><div class="lbl">Stage</div><input data-g="label" type="text" value="'+esc(m.label||"")+'" placeholder="Deposit on order"></div>'+
+      '<div><div class="lbl">Amount</div><input data-g="amount" type="number" step="0.01" min="0" class="mono" value="'+num(m.amount)+'"></div>'+
+      '<div><div class="lbl">Due</div><input data-g="date" type="date" class="mono" value="'+esc(m.dueDate||"")+'"></div>'+
+      '<div><div class="lbl">&nbsp;</div><button class="btn quiet sm" data-g="del" type="button" aria-label="Remove stage">×</button></div>'+
+    '</div>';
+  }).join("") +
+  '<p class="tiny" id="of-ms-sum" style="margin-top:10px; color:'+(off?"var(--warn)":"var(--text-3)")+'">'+
+    'Scheduled '+money(scheduled)+' of '+money(total)+(off ? ' · '+money(total-scheduled)+' unscheduled' : ' · balanced')+'</p>';
+
+  box.querySelectorAll("[data-m]").forEach(function(row){
+    var i=Number(row.dataset.m);
+    row.querySelectorAll("[data-g]").forEach(function(inp){
+      var g=inp.dataset.g;
+      if(g==="del"){ inp.addEventListener("click", function(){ state.offer.milestones.splice(i,1); renderMilestones(); }); return; }
+      inp.addEventListener("input", function(){
+        var M=state.offer.milestones[i];
+        if(g==="label") M.label=inp.value;
+        if(g==="amount"){ M.amount=num(inp.value); refreshMilestoneSum(); }
+        if(g==="date") M.dueDate=inp.value;
+      });
+    });
+  });
+}
+/* Update the "scheduled of total" line without redrawing the inputs being typed in. */
+function refreshMilestoneSum(){
+  var el=$("of-ms-sum"); if(!el) return;
+  var total=offerTotal(), scheduled=sum(state.offer.paidStages||[],function(m){ return m.amount; })+sum(state.offer.milestones||[],function(m){ return m.amount; });
+  var off=Math.abs(scheduled-total)>0.5;
+  el.style.color = off ? "var(--warn)" : "var(--text-3)";
+  el.textContent = 'Scheduled '+money(scheduled)+' of '+money(total)+(off ? ' · '+money(total-scheduled)+' unscheduled' : ' · balanced');
+}
+$("of-ms-standard").addEventListener("click", function(){
+  var total=offerTotal()-sum(state.offer.paidStages||[],function(m){ return m.amount; });
+  if(total<=0){ toast("Add the items first, then the stages follow the total", true); return; }
+  var dep=Math.round(total*0.4*100)/100, mid=Math.round(total*0.5*100)/100;
+  state.offer.milestones=[
+    {label:"Deposit on order", amount:dep, dueDate:$("of-date").value||todayISO()},
+    {label:"On delivery of equipment", amount:mid, dueDate:""},
+    {label:"On commissioning and handover", amount:Math.round((total-dep-mid)*100)/100, dueDate:""}
+  ];
+  renderMilestones();
+});
+$("of-ms-add").addEventListener("click", function(){
+  state.offer.milestones=(state.offer.milestones||[]).concat([{label:"", amount:0, dueDate:""}]);
+  renderMilestones();
+});
+
 $("of-save").addEventListener("click", function(){
   var ctx=offerCtx();
   if(!ctx.client){ toast("Choose a client first", true); return; }
@@ -1094,6 +1193,8 @@ $("of-save").addEventListener("click", function(){
     clientId:ctx.client.id, region:ctx.region, dealType:ctx.type, serviceType:ctx.service,
     date:ctx.date, dueDate:val("of-due") || null, notes:val("of-notes"),
     paid:paid, method:val("of-method"),
+    milestones:(state.offer.milestones||[]).filter(function(m){ return num(m.amount)>0; })
+      .map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||null}; }),
     lines:done.map(function(l){
       var base={kind:l.kind, qty:num(l.qty), standardPrice:lineStandard(l,ctx), unitPrice:num(l.unitPrice)};
       if(l.kind==="combo"){ base.baseId=l.baseId; base.coverId=l.coverId; } else { base.productId=l.productId; }
@@ -1157,6 +1258,11 @@ function openDoc(t, kind){
       : '<th class="num">Qty</th>'+(showMoney?'<th class="num">Unit</th><th class="num">Amount</th>':''))+'</tr></thead>'+
       '<tbody>'+rows+'</tbody></table>'+
     totals+
+    ((kind==="Agreement" || kind==="Invoice") && (t.milestones||[]).length ?
+      '<table style="margin-top:24px"><thead><tr><th>Payment stage</th><th>Due</th><th class="num">Amount</th></tr></thead><tbody>'+
+      t.milestones.map(function(m){
+        return '<tr><td>'+esc(m.label)+(m.paid ? ' — received' : '')+'</td><td>'+(m.dueDate ? fmtDate(m.dueDate) : "on agreement")+'</td><td class="num">'+money(m.amount)+'</td></tr>';
+      }).join("")+'</tbody></table>' : '')+
     (kind==="Receipt" && pays.length ?
       '<table style="margin-top:22px"><thead><tr><th>Received on</th><th>Method</th><th class="num">Amount</th></tr></thead><tbody>'+
       pays.map(function(p){ return '<tr><td>'+fmtDate(p.date)+'</td><td>'+esc(p.method||"")+'</td><td class="num">'+money(p.amount)+'</td></tr>'; }).join("")+
