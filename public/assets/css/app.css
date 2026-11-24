@@ -349,23 +349,26 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 #doc .d-logo-big{height:30px; width:auto; object-fit:contain; display:block; margin-bottom:6px}
 #doc .d-bar-r{font-size:9.5px; letter-spacing:.1em; color:#8B928B}
 #doc .d-footbar{display:flex; justify-content:space-between; padding:14px 48px 20px; border-top:1px solid #E8EAE7; font-size:9px; color:#8B928B; letter-spacing:.04em}
-#doc .d-cover{height:100%; min-height:520px; background-color:#23262A; background-size:cover; background-position:center;
-  color:#FFFFFF; display:flex; flex-direction:column; justify-content:space-between; padding:44px 46px; box-sizing:border-box}
-#doc .d-cover-top{display:flex; justify-content:space-between; font-size:10.5px; line-height:1.9; color:rgba(255,255,255,.88)}
+#doc .d-cover{height:100%; min-height:520px; background:#FFFFFF; color:#161A16;
+  display:flex; flex-direction:column; justify-content:space-between; padding:150px 46px 70px; box-sizing:border-box}
+#doc .d-cover-top{display:flex; justify-content:space-between; font-size:10px; font-weight:600; line-height:1.7; color:#3C423C}
 #doc .d-cover-top .r{text-align:right}
-#doc .d-cover-mid{padding:40px 0}
-#doc .d-cover-mid img{max-width:60%; max-height:110px; object-fit:contain; display:block}
-#doc .d-cover-word{font-size:58px; font-weight:300; letter-spacing:-0.03em; line-height:1}
-#doc .d-cover-tag{margin-top:16px; font-size:13px; color:rgba(255,255,255,.75)}
-#doc .d-cover-foot{font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:rgba(255,255,255,.6)}
+#doc .d-cover-mid{display:flex; flex-direction:column; align-items:center; text-align:center; padding:40px 0}
+#doc .d-cover-mid img{max-width:62%; max-height:150px; object-fit:contain; display:block}
+#doc .d-cover-word{font-size:84px; font-weight:400; letter-spacing:-0.02em; line-height:1; color:#45484B}
+#doc .d-cover-tag{margin-top:34px; font-size:9.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#161A16}
+#doc .d-cover-foot{text-align:center; font-size:15px; color:#6A716A}
+#doc .d-opening{display:flex; flex-direction:column}
+#doc .d-opening-pic{flex:1; display:flex; align-items:center; justify-content:center; padding:40px 0 10px}
+#doc .d-opening-pic img{max-width:78%; max-height:420px; object-fit:contain}
 #doc .d-back{height:100%; min-height:520px; display:flex; flex-direction:column; justify-content:center; padding:0 60px; background:#FFFFFF; box-sizing:border-box}
 #doc .d-back img{max-width:48%; max-height:90px; object-fit:contain}
 #doc .d-back-tag{margin-top:14px; font-size:11.5px; color:#8B928B}
 /* On the branded pages the bar is the letterhead, so the sheet's own wordmark and contact strip would repeat it. */
 #doc .d-page-bar .d-mark, #doc .d-page-bar .d-foot{display:none}
 #doc .d-page-bar .d-top{justify-content:flex-end; padding-bottom:16px}
-#doc .d-intro{font-size:12.5px; line-height:1.75; color:#3C423C; margin:0; white-space:pre-wrap}
-#doc .d-bullets{margin:26px 0 0; padding-left:18px; font-size:11.5px; line-height:2; color:#3C423C}
+#doc .d-intro{font-size:12.5px; font-weight:600; line-height:1.75; color:#161A16; margin:0; white-space:pre-wrap; text-align:justify}
+#doc .d-bullets{margin:40px 0 0; padding-left:18px; font-size:11px; font-weight:500; line-height:2; color:#161A16}
 .brand-box{display:flex; gap:10px; align-items:center; flex-wrap:wrap; min-height:44px}
 .brand-box img{max-height:44px; max-width:180px; object-fit:contain; border:1px solid var(--line); border-radius:var(--radius); background:#fff; padding:4px}
 #doc .d-top{display:flex; justify-content:space-between; align-items:flex-start; gap:24px; padding-bottom:20px; border-bottom:1.5px solid #161A16}

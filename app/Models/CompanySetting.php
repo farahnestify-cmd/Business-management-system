@@ -19,7 +19,15 @@ class CompanySetting extends Model
         'terms_quotation' => 'All prices in USD. This quotation is valid for {validity} days from the date above. A down payment confirms the order and reserves the stock listed.',
         'terms_agreement' => 'This agreement confirms the scope and prices listed above. The balance falls due on delivery unless a date is stated. Nestify remains the owner of the goods until payment is received in full.',
         'terms_invoice' => 'Payment due on receipt. Please quote the reference number above with your transfer.',
+        'intro_text' => self::INTRO,
+        'offer_notes' => self::NOTES,
+        'cover_note' => 'welcome to smarter living.',
     ];
+
+    /** The opening page of the Full quotation, until the company writes its own. */
+    public const INTRO = 'Thank you for considering nestify. Below is your personalized price offer, designed to meet your needs with the highest standards of quality and innovation. This offer includes premium devices supporting ZigBee.';
+
+    public const NOTES = "Prices are in USD and exclude VAT.\nDelivery time: within 2–4 weeks from approval of the quotation.\nThe quotation does not include electrical wiring or connection works.\nThree-year warranty on all switches.";
 
     public static function current(): self
     {

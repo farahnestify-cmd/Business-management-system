@@ -1687,17 +1687,19 @@ function openDocIn(t, kind){
     var bullets=curWording(t, String(s.offerNotes||"")).split("\n").map(function(x){ return x.trim(); }).filter(Boolean);
     var logoOrName = function(dark){ return s.logo ? '<img src="'+esc(dark ? s.logo : (whiteLogo.url||s.logo))+'" alt="'+esc(s.name||"")+'">'
       : '<div class="d-cover-word"'+(dark?' style="color:#161A16"':'')+'>'+esc(s.name||"Nestify")+'</div>'; };
+    /* A white cover: who it is for at the top, the logo in the middle, the welcome line at the foot. */
     var cover =
-      '<div class="d-cover"'+(s.hero ? ' style="background-image:linear-gradient(180deg, rgba(12,14,12,.55), rgba(12,14,12,.85)), url(\''+esc(s.hero)+'\')"' : '')+'>'+
-        '<div class="d-cover-top"><div><div>Subject: Price offer</div><div>To: '+esc(t.clientName||"")+'</div>'+
-          (t.site ? '<div>Site: '+esc(t.site)+'</div>' : '')+'<div>Date issued: '+fmtDate(dateMap[kind]||todayISO())+'</div></div>'+
+      '<div class="d-cover">'+
+        '<div class="d-cover-top"><div><div>Subject: Price Offer</div><div>To: '+esc(t.clientName||"")+'</div>'+
+          (t.site ? '<div>Project: '+esc(t.site)+'</div>' : '')+'<div>Date Issued: '+fmtDate(dateMap[kind]||todayISO())+'</div></div>'+
           '<div class="r">Offer No.: '+esc(refMap[kind])+'</div></div>'+
-        '<div class="d-cover-mid">'+logoOrName(false)+'<div class="d-cover-tag">'+esc(s.tagline||"")+'</div></div>'+
+        '<div class="d-cover-mid">'+logoOrName(true)+'<div class="d-cover-tag">Price Offer</div></div>'+
         '<div class="d-cover-foot">'+esc(s.coverNote||"")+'</div>'+
       '</div>';
-    var notes = docBrandBar(s)+'<div class="d-body">'+
+    var notes = docBrandBar(s)+'<div class="d-body d-opening">'+
         (s.introText ? '<p class="d-intro">'+esc(s.introText)+'</p>' : '')+
         (bullets.length ? '<ul class="d-bullets">'+bullets.map(function(b){ return '<li>'+esc(b)+'</li>'; }).join("")+'</ul>' : '')+
+        (s.hero ? '<div class="d-opening-pic"><img src="'+esc(s.hero)+'" alt=""></div>' : '')+
       '</div>'+docFootBar(s, 2, 4);
     var back = '<div class="d-back">'+logoOrName(true)+'<div class="d-back-tag">'+esc(s.tagline||"")+'</div></div>';
     $("doc").innerHTML = docPage(cover, "d-page-full") + docPage(notes, "d-page-bar") +
@@ -2571,7 +2573,7 @@ var settingsDirty=false;
 /* Logo and cover photo: scaled down in the browser before upload so they stay light. */
 var brandTarget=null;
 function renderBrandImages(){
-  [["logo","s-logo-box","Logo"],["hero","s-hero-box","Cover photo"]].forEach(function(x){
+  [["logo","s-logo-box","Logo"],["hero","s-hero-box","Picture"]].forEach(function(x){
     var url=state.settings[x[0]], box=$(x[1]); if(!box) return;
     box.innerHTML=(url ? '<img src="'+esc(url)+'" alt="'+x[2]+'">' : '<span class="tiny faint">None yet</span>')+
       (isOwner() ? '<button class="btn sm" type="button" data-up="'+x[0]+'">'+(url?"Replace":"Upload")+'</button>'+
