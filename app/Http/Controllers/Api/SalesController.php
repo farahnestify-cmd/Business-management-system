@@ -450,6 +450,7 @@ class SalesController extends Controller
         return DB::transaction(function () use ($transaction, $data, $rows) {
             $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
             $this->requireDeliveryStage($tx);
+            $this->keepOriginalQuote($tx);
             $lines = $tx->items()->lockForUpdate()->get()->keyBy('id');
 
             foreach ($rows as $i => $row) {
@@ -509,21 +510,31 @@ class SalesController extends Controller
         return DB::transaction(function () use ($transaction, $data, $rows) {
             $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
             $this->requireDeliveryStage($tx);
+            $this->keepOriginalQuote($tx);
             $delivered = 0;
             $waiting = 0;
 
             foreach ($rows as $row) {
                 [$item] = $this->buildItems([$row + ['standardPrice' => $row['unitPrice']]]);
-                $li = $tx->items()->create($item);
+                // The same item at the same price joins the row already on the deal instead of a second row.
+                $li = $tx->items()->lockForUpdate()->get()->first(fn ($x) => $x->kind === $item['kind']
+                    && (int) $x->product_id === (int) ($item['product_id'] ?? 0) && (int) $x->base_id === (int) ($item['base_id'] ?? 0)
+                    && (int) $x->cover_id === (int) ($item['cover_id'] ?? 0) && abs($x->unit_price - $item['unit_price']) < 0.005);
+                if ($li) {
+                    $li->qty += $item['qty'];
+                    $li->save();
+                } else {
+                    $li = $tx->items()->create($item);
+                }
 
                 $parts = $this->stockParts($li);
-                $take = $parts ? min($li->qty, ...array_map(fn ($m) => max(0, $m->stock_on_hand), $parts)) : 0;
+                $take = $parts ? min($item['qty'], ...array_map(fn ($m) => max(0, $m->stock_on_hand), $parts)) : 0;
                 if ($take > 0) {
                     foreach ($parts as $m) {
                         $m->stock_on_hand -= $take;
                         $m->save();
                     }
-                    $li->update(['delivered_qty' => $take]);
+                    $li->update(['delivered_qty' => $li->delivered_qty + $take]);
                     Delivery::create([
                         'transaction_id' => $tx->id, 'transaction_item_id' => $li->id, 'qty' => $take, 'type' => 'out',
                         'note' => trim('Extra item, not on the offer. '.($data['note'] ?? '')),
@@ -531,12 +542,21 @@ class SalesController extends Controller
                     ]);
                 }
                 $delivered += $take;
-                $waiting += $li->qty - $take;
+                $waiting += $item['qty'] - $take;
             }
             $this->settleDeliveryStage($tx->fresh('items'));
 
             return response()->json(['ok' => true, 'delivered' => $delivered, 'waiting' => $waiting]);
         });
+    }
+
+    /** Keeps the quotation as agreed, once, before returns or extra items change the lines. */
+    private function keepOriginalQuote(Transaction $tx): void
+    {
+        if ($tx->quote_snapshot === null) {
+            $tx->quote_snapshot = json_encode($tx->items()->get()->map->toApi()->values());
+            $tx->save();
+        }
     }
 
     private function requireDeliveryStage(Transaction $tx): void

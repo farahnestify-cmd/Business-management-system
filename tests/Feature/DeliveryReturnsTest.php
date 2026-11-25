@@ -125,4 +125,26 @@ class DeliveryReturnsTest extends TestCase
         $this->assertSame(3, $b->fresh()->stock_on_hand);
         $this->assertCount(3, Transaction::find($id)->items);
     }
+
+    public function test_the_same_item_joins_its_row_and_the_original_quote_is_kept(): void
+    {
+        $this->actingAs(User::create(['name' => 'O', 'email' => 'o@example.com', 'password' => 'secret123', 'role' => 'owner']));
+        $p = Product::create(['name' => 'Screen', 'category' => 'DNAKE', 'stock_on_hand' => 5]);
+        $id = $this->deliveredDeal($p, 2);
+
+        // Same item, same price: one row of 3. A different price stays a row of its own.
+        $this->postJson("/api/transactions/$id/extra", ['items' => [['kind' => 'product', 'productId' => $p->id, 'qty' => 1, 'unitPrice' => 100]]])->assertOk();
+        $tx = Transaction::with('items')->find($id);
+        $this->assertCount(1, $tx->items);
+        $this->assertSame(3, $tx->items[0]->qty);
+        $this->assertSame(3, $tx->items[0]->delivered_qty);
+        $this->assertSame('Delivered', $tx->status);
+        $this->postJson("/api/transactions/$id/extra", ['items' => [['kind' => 'product', 'productId' => $p->id, 'qty' => 1, 'unitPrice' => 0]]])->assertOk();
+        $this->assertCount(2, Transaction::find($id)->items);
+
+        // The quotation as agreed is still there: one line of 2.
+        $original = collect($this->getJson('/api/bootstrap')->json('transactions'))->firstWhere('id', $id)['originalLines'];
+        $this->assertCount(1, $original);
+        $this->assertSame(2, $original[0]['qty']);
+    }
 }

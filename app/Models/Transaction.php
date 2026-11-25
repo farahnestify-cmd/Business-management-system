@@ -96,6 +96,8 @@ class Transaction extends Model
             'status' => $this->status,
             'vatPct' => (float) $this->vat_pct,
             'discountPct' => (float) $this->discount_pct,
+            // The lines as quoted, kept once returns or extra items changed the deal (null until then).
+            'originalLines' => $this->quote_snapshot ? json_decode($this->quote_snapshot, true) : null,
             'currency' => $this->currency ?: 'USD',
             'fxRate' => (float) ($this->fx_rate ?: 1),
             'lineItems' => $this->items->map(fn ($li) => $li->toApi())->values()->all(),

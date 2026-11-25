@@ -1022,7 +1022,8 @@ function openTxIn(id){
         var label = a==="Cancelled" ? "Cancel deal" : (a!=="Delivered" ? "Move to "+a : (plan.later.length ? "Deliver what is in stock" : "Deliver"));
         var blocked = a==="Delivered" && !plan.now.length;
         return '<button class="btn sm '+(a==="Cancelled"?"danger":"primary")+'" data-adv="'+a+'" type="button"'+(blocked?' data-blocked="1"':'')+'>'+label+'</button>'; }).join("")+
-      '<button class="btn sm" type="button" data-doc="Quotation">Quotation</button>'+
+      '<button class="btn sm" type="button" data-doc="Quotation">Quotation'+(t.originalLines ? ' (original)' : '')+'</button>'+
+      (t.originalLines ? '<button class="btn sm" type="button" data-doc="Updated Quotation">Updated quotation</button>' : '')+
       (t.agreementDate||isBilled(t) ? '<button class="btn sm" type="button" data-doc="Agreement">Agreement</button>' : '')+
       (isBilled(t) ? '<button class="btn sm" type="button" data-doc="Invoice">Invoice</button>' : '')+
       (deliveredSome(t) || deliveryLog(t).length ? '<button class="btn sm" type="button" data-doc="Delivery Note">Delivery note</button>' : '')+
@@ -1306,7 +1307,12 @@ function extraItemForm(t){
   function suggest(r){
     var line = r.item.indexOf("p:")===0 ? {kind:"product", productId:r.item.slice(2)}
       : (r.item.indexOf("b:")===0 ? {kind:"combo", baseId:r.item.slice(2), coverId:r.cover} : null);
-    r.price = line ? r2(lineStandard(line, ctx)*txRate(t)) : 0;
+    /* An item already on the deal starts at that row's price, so it is added to the same row. */
+    var same = line && (t.lineItems||[]).filter(function(li){
+      return li.kind===line.kind && (line.kind==="product" ? li.productId===line.productId : (li.baseId===line.baseId && li.coverId===line.coverId));
+    })[0];
+    r.onDeal = !!same;
+    r.price = same ? num(same.unitPrice) : (line ? r2(lineStandard(line, ctx)*txRate(t)) : 0);
   }
   function draw(){
     $("x-rows").innerHTML = '<div class="mrow mrow-x mrow-head"><span>Item</span><span>Cover (for a base)</span><span>Qty</span><span>Unit price ('+esc(txCur(t))+')</span><span></span></div>'+
@@ -1324,7 +1330,7 @@ function extraItemForm(t){
               return '<option value="'+cv.id+'"'+(r.cover===cv.id?" selected":"")+'>'+esc(cv.name)+'</option>'; }).join("")+'</select>'
             : '<span class="tiny faint" style="align-self:center">—</span>')+
           '<input data-f="qty" type="number" min="1" step="1" class="mono" value="'+r.qty+'">'+
-          '<input data-f="price" type="number" min="0" step="0.01" class="mono" value="'+r.price+'">'+
+          '<input data-f="price" type="number" min="0" step="0.01" class="mono" value="'+r.price+'" title="'+(r.onDeal ? "Already on this deal: at this price it joins the same row" : "")+'">'+
           '<button class="btn quiet sm" type="button" data-f="rm" aria-label="Remove row"'+(rows.length===1?" disabled":"")+'>×</button></div>';
       }).join("");
     $("x-rows").querySelectorAll(".mrow[data-i]").forEach(function(row){
@@ -1343,7 +1349,7 @@ function extraItemForm(t){
   openForm("Deliver extra items — "+t.refNo, [
     {html: rowsBox("x-rows", "Add another item")},
     {fields:[{id:"x-note", label:"Note (shows in the log)", placeholder:"Added on site, swapped model…"}]},
-    {note:"Each item is added to this deal as a new line and handed over from stock now; put 0 as the price for anything given free. What is not in stock waits on the To deliver list."+
+    {note:"Each item is handed over from stock now. One already on the deal at the same price is added to its row; anything else becomes a new line (put 0 as the price for anything given free). What is not in stock waits on the To deliver list."+
       (num(t.discountPct)>0 ? " The deal's "+r2(num(t.discountPct)*100)+"% discount applies to them too." : "")}
   ], function(){
     var items=[];
@@ -1812,7 +1818,15 @@ function curWording(t, text){
   var c=currencyByCode(cur), name=c ? c.name : cur;
   return text.replace(/\bUSD\b/g, cur).replace(/\bUS dollars\b/gi, name);
 }
-function openDoc(t, kind){ return withCur(txCur(t), function(){ return openDocIn(t, kind); }); }
+/* "Quotation" always prints the offer as the client agreed it; once returns or extra items have
+   changed the deal, "Updated Quotation" prints the lines as they are now (reference with -R). */
+function openDoc(t, kind){
+  var updated = kind==="Updated Quotation";
+  var src = kind==="Quotation" && t.originalLines ? Object.assign({}, t, {lineItems:t.originalLines}) : t;
+  var r = withCur(txCur(t), function(){ return openDocIn(src, updated ? "Quotation" : kind, updated); });
+  docState.t=t; docState.kind=kind;
+  return r;
+}
 /* Whole amounts print without cents ($90), others with them ($90.50). */
 function docMoney(v){ var n=num(v); return money(n, Math.abs(n-Math.round(n))<0.005 ? 0 : 2); }
 /* A line's picture: the product's, or for a base + cover the cover's (its colour), else the base's. */
@@ -1821,13 +1835,14 @@ function lineImage(li){
   if(li.kind==="combo"){ var c=coverById(li.coverId), b=baseById(li.baseId); return (c&&c.image) || (b&&b.image) || ""; }
   var p=productById(li.productId); return (p&&p.image) || "";
 }
-function openDocIn(t, kind){
+function openDocIn(t, kind, updated){
   docState.t=t; docState.kind=kind;
   var s=state.settings;
   var refMap={"Quotation":t.refNo, "Agreement":agreementRef(t.refNo), "Invoice":invoiceRef(t.refNo),
               "Delivery Note":invoiceRef(t.refNo), "Receipt":invoiceRef(t.refNo)};
   var dateMap={"Quotation":txDocDate(t), "Agreement":t.agreementDate, "Invoice":t.invoiceDate,
                "Delivery Note":t.deliveredDate||todayISO(), "Receipt":todayISO()};
+  if(updated){ refMap.Quotation=t.refNo+"-R"; dateMap.Quotation=todayISO(); }
   var client=clientById(t.clientId)||{};
   var showMoney = kind!=="Delivery Note";
   var terms = kind==="Quotation" ? s.termsQuotation : (kind==="Agreement" ? s.termsAgreement : s.termsInvoice);
@@ -1839,6 +1854,14 @@ function openDocIn(t, kind){
     if(isNote && li.kind==="service") return false;
     return kind==="Quotation" || num(li.qty)>0 || num(li.deliveredQty)>0;
   });
+  /* The same item at the same price prints as one row, however many times it was added. */
+  var merged=[], seen={};
+  lines.forEach(function(li){
+    var key = li.kind==="service" ? null : [li.kind, li.productId||"", li.baseId||"", li.coverId||"", r2(li.unitPrice)].join("|");
+    if(key && seen[key]){ seen[key].qty=num(seen[key].qty)+num(li.qty); seen[key].deliveredQty=num(seen[key].deliveredQty)+num(li.deliveredQty); return; }
+    var copy=Object.assign({}, li); merged.push(copy); if(key) seen[key]=copy;
+  });
+  lines=merged;
   /* The Image column only appears when at least one line has a picture. */
   var withPics = lines.some(function(li){ return !!lineImage(li); });
   var code=txCur(t);
@@ -1874,7 +1897,7 @@ function openDocIn(t, kind){
     '<div class="d-top">'+
       '<div class="d-mark">'+(s.logo ? '<img class="d-logo-big" src="'+esc(s.logo)+'" alt="'+esc(s.name||"")+'">' : '<b>'+esc(s.name||"nestify")+'</b>')+
         '<span>'+esc(s.tagline||"")+'</span></div>'+
-      '<div class="d-kind"><div class="k">'+esc(kind)+'</div><div class="r">'+esc(refMap[kind])+'</div>'+
+      '<div class="d-kind"><div class="k">'+esc(updated ? "Updated quotation" : kind)+'</div><div class="r">'+esc(refMap[kind])+'</div>'+
         '<div class="dt">'+fmtDate(dateMap[kind]||todayISO())+'</div></div>'+
     '</div>'+
     '<div class="d-meta">'+
@@ -1929,7 +1952,7 @@ function openDocIn(t, kind){
       docPage(docBrandBar(s)+'<div class="d-body">'+sheet+'</div>'+docFootBar(s, 3, 4), "d-page-bar") + docPage(back, "d-page-full");
   }
 
-  $("doc-title").textContent = kind + " · " + refMap[kind];
+  $("doc-title").textContent = (updated ? "Updated quotation" : kind) + " · " + refMap[kind];
   $("doc-style").hidden = kind!=="Quotation";
   $("doc-style").querySelectorAll("button").forEach(function(b){ b.setAttribute("aria-pressed", String(b.dataset.t===docState.style)); });
   $("doc-overlay").hidden=false;
@@ -1994,9 +2017,9 @@ function docToPdf(){
 function docBaseName(){
   var t=docState.t, kind=docState.kind;
   if(!t) return "Document";
-  var ref={"Quotation":t.refNo, "Agreement":agreementRef(t.refNo), "Invoice":invoiceRef(t.refNo),
+  var ref={"Quotation":t.refNo, "Updated Quotation":t.refNo+"-R", "Agreement":agreementRef(t.refNo), "Invoice":invoiceRef(t.refNo),
            "Delivery Note":invoiceRef(t.refNo), "Receipt":invoiceRef(t.refNo)}[kind] || t.refNo;
-  var name=clientAddress(t)+" -NEST-"+ref+(kind && kind!=="Quotation" ? " "+kind : "");
+  var name=clientAddress(t)+" -NEST-"+ref+(kind && kind!=="Quotation" && kind!=="Updated Quotation" ? " "+kind : "");
   /* Arabic names stay; only characters a file name cannot hold are dropped. */
   return name.replace(/[\\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "Document";
 }
