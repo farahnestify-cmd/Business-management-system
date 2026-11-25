@@ -450,3 +450,10 @@ html:not([data-role="owner"]) .c-cost{display:none!important}
   border-radius:99px; padding:3px 12px; font-size:12px; font-weight:600; cursor:pointer}
 #toast button:hover{background:color-mix(in srgb, currentColor 14%, transparent)}
 #of-disc[readonly]{opacity:.65}
+/* Forms with several rows (returns, extra items) */
+.mrows{display:flex; flex-direction:column; gap:8px}
+.mrow{display:grid; gap:8px; align-items:center}
+.mrow-r{grid-template-columns:1.8fr 70px 1.8fr 36px}
+.mrow-x{grid-template-columns:2fr 1.5fr 70px 110px 36px}
+.mrow-head span{font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint, #8B928B)}
+@media (max-width:720px){ .mrow-r,.mrow-x{grid-template-columns:1fr 1fr} .mrow-head{display:none} }

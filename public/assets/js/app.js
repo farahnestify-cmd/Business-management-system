@@ -1030,8 +1030,8 @@ function openTxIn(id){
     '</div>'+
     deliveryLogHtml(t, false)+
     (isBilled(t) ? '<div style="display:flex; gap:8px; flex-wrap:wrap">'+
-      (deliveredSome(t) ? '<button class="btn sm" type="button" id="tx-return">Return an item</button>' : '')+
-      '<button class="btn sm" type="button" id="tx-extra">Deliver an extra item</button></div>' : '')+
+      (deliveredSome(t) ? '<button class="btn sm" type="button" id="tx-return">Return items</button>' : '')+
+      '<button class="btn sm" type="button" id="tx-extra">Deliver extra items</button></div>' : '')+
     (plan.later.length ?
       '<p class="tiny" style="color:var(--warn)">'+(plan.now.length ? 'Delivering now: '+esc(listQty(plan.now))+'.<br>' : 'Nothing in stock to deliver yet.<br>')+
       'Still to come: '+esc(listQty(plan.later))+'. It stays on the To deliver list until the stock arrives.</p>' : '')+
@@ -1245,68 +1245,129 @@ function deliveryLogHtml(t, printed){
   return '<div class="section"><p class="eyebrow">Delivery log</p><div class="panel"><div class="table-wrap"><table>'+
     '<thead><tr><th>Date</th><th>Movement</th><th>Item</th><th class="num">Qty</th><th>By</th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
 }
+/* Both forms below hold several rows; each row is redrawn from its little state array. */
+function rowsBox(id, addLabel){
+  return '<div id="'+id+'" class="mrows"></div><button class="btn sm" type="button" id="'+id+'-add" style="margin-top:8px">'+addLabel+'</button>';
+}
 function returnItemForm(t){
   var lines=(t.lineItems||[]).filter(function(li){ return li.kind!=="service" && num(li.deliveredQty)>0; });
   if(!lines.length){ toast("Nothing has gone out on this deal yet", true); return; }
-  openForm("Return an item — "+t.refNo, [
-    {fields:[{id:"r-line", label:"Item", type:"select", options:lines.map(function(li){ return {value:li.id, label:li.name+" · "+num(li.deliveredQty)+" delivered"}; })},
-             {id:"r-qty", label:"How many came back", type:"number", step:"1", min:1, value:1}]},
-    {fields:[{id:"r-out", label:"What happens now", type:"select", value:"replace", options:[
-      {value:"replace", label:"It will be replaced — deliver it again later"},
-      {value:"remove", label:"The client does not keep it — take it off the invoice"}]}]},
+  var rows=[{lineId:lines[0].id, qty:1, outcome:"replace"}];
+  function draw(){
+    $("r-rows").innerHTML = '<div class="mrow mrow-r mrow-head"><span>Item</span><span>Qty back</span><span>What happens now</span><span></span></div>'+
+      rows.map(function(r, i){
+        return '<div class="mrow mrow-r" data-i="'+i+'">'+
+          '<select data-f="lineId">'+lines.map(function(li){
+            return '<option value="'+li.id+'"'+(li.id===r.lineId?" selected":"")+'>'+esc(li.name)+' · '+num(li.deliveredQty)+' delivered</option>'; }).join("")+'</select>'+
+          '<input data-f="qty" type="number" min="1" step="1" class="mono" value="'+r.qty+'">'+
+          '<select data-f="outcome"><option value="replace"'+(r.outcome==="replace"?" selected":"")+'>Replace — deliver again</option>'+
+            '<option value="remove"'+(r.outcome==="remove"?" selected":"")+'>Not kept — off the invoice</option></select>'+
+          '<button class="btn quiet sm" type="button" data-f="rm" aria-label="Remove row"'+(rows.length===1?" disabled":"")+'>×</button></div>';
+      }).join("");
+    $("r-rows").querySelectorAll(".mrow[data-i]").forEach(function(row){
+      var r=rows[Number(row.dataset.i)];
+      row.querySelectorAll("[data-f]").forEach(function(inp){
+        var f=inp.dataset.f;
+        if(f==="rm") inp.addEventListener("click", function(){ rows.splice(Number(row.dataset.i),1); draw(); });
+        else inp.addEventListener("input", function(){ r[f] = f==="qty" ? num(inp.value) : inp.value; });
+      });
+    });
+  }
+  openForm("Return items — "+t.refNo, [
+    {html: rowsBox("r-rows", "Add another item")},
     {fields:[{id:"r-note", label:"Why (shows in the log)", placeholder:"Faulty unit, wrong colour…"}]},
-    {note:"The units go back into stock. A replacement waits on the To deliver list until you press Deliver; taking it off the invoice lowers the total, and if the client already paid more, the deal shows the refund due."}
+    {note:"Everything listed goes back into stock in one go. A replacement waits on the To deliver list until you press Deliver; an item the client does not keep comes off the invoice, and if they already paid more, the deal shows the refund due."}
   ], function(){
-    var li=byId(lines, val("r-line")), q=valNum("r-qty");
-    if(q<1 || q!==Math.round(q)){ toast("Enter how many came back", true); return false; }
-    if(q>num(li.deliveredQty)){ toast("Only "+num(li.deliveredQty)+" of "+li.name+" went out", true); return false; }
-    send("POST", "transactions/"+t.id+"/returns", {lineId:Number(li.id), qty:q, outcome:val("r-out"), note:val("r-note")},
-      function(){ closeForm(); openTx(t.id); }, "Return recorded");
+    var used={};
+    for(var i=0;i<rows.length;i++){
+      var r=rows[i], li=byId(lines, r.lineId);
+      if(!li){ toast("Choose the item on row "+(i+1), true); return false; }
+      if(r.qty<1 || r.qty!==Math.round(r.qty)){ toast("Enter how many came back on row "+(i+1), true); return false; }
+      used[li.id]=(used[li.id]||0)+r.qty;
+      if(used[li.id]>num(li.deliveredQty)){ toast("Only "+num(li.deliveredQty)+" of "+li.name+" went out", true); return false; }
+    }
+    send("POST", "transactions/"+t.id+"/returns", {note:val("r-note"),
+      items:rows.map(function(r){ return {lineId:Number(r.lineId), qty:r.qty, outcome:r.outcome}; })},
+      function(){ closeForm(); openTx(t.id); }, rows.length>1 ? rows.length+" returns recorded" : "Return recorded");
     return false;
+  });
+  draw();
+  $("r-rows-add").addEventListener("click", function(){
+    var taken={}; rows.forEach(function(r){ taken[r.lineId]=1; });
+    var next=lines.filter(function(li){ return !taken[li.id]; })[0] || lines[0];
+    rows.push({lineId:next.id, qty:1, outcome:"replace"}); draw();
   });
 }
 function extraItemForm(t){
   var c=clientById(t.clientId), tier=c ? tierById(c.tierId) : null;
   var ctx={clientType: tier ? (tier.basis==="Dealer" ? "Dealer" : "End User") : t.clientType, region:t.region, service:t.serviceType};
-  var items=[{value:"", label:"Choose…"}]
-    .concat(state.products.map(function(p){ return {value:"p:"+p.id, label:p.name}; }))
-    .concat(state.bases.map(function(b){ return {value:"b:"+b.id, label:b.name+" (base — choose its cover)"}; }));
-  var covers=[{value:"", label:"—"}].concat(state.covers.map(function(cv){ return {value:cv.id, label:cv.name+(cv.line?" · line "+cv.line:"")}; }));
-  openForm("Deliver an extra item — "+t.refNo, [
-    {fields:[{id:"x-item", label:"Item", type:"select", options:items, value:""},
-             {id:"x-cover", label:"Cover (for a base)", type:"select", options:covers, value:""}]},
-    {fields:[{id:"x-qty", label:"How many", type:"number", step:"1", min:1, value:1},
-             {id:"x-price", label:"Unit price ("+txCur(t)+") — 0 if it is free", type:"number", step:"0.01", min:0, value:0}]},
+  var rows=[{item:"", cover:"", qty:1, price:0}];
+  /* The price starts at the client's book price and can be changed (0 for a free item). */
+  function suggest(r){
+    var line = r.item.indexOf("p:")===0 ? {kind:"product", productId:r.item.slice(2)}
+      : (r.item.indexOf("b:")===0 ? {kind:"combo", baseId:r.item.slice(2), coverId:r.cover} : null);
+    r.price = line ? r2(lineStandard(line, ctx)*txRate(t)) : 0;
+  }
+  function draw(){
+    $("x-rows").innerHTML = '<div class="mrow mrow-x mrow-head"><span>Item</span><span>Cover (for a base)</span><span>Qty</span><span>Unit price ('+esc(txCur(t))+')</span><span></span></div>'+
+      rows.map(function(r, i){
+        var isBase=r.item.indexOf("b:")===0, b=isBase ? baseById(r.item.slice(2)) : null;
+        var covers=isBase ? state.covers.filter(function(cv){ return !b || !b.line || !cv.line || cv.line===b.line; }) : [];
+        return '<div class="mrow mrow-x" data-i="'+i+'">'+
+          '<select data-f="item"><option value="">Choose…</option>'+
+            (state.products.length ? '<optgroup label="Products">'+state.products.map(function(p){
+              return '<option value="p:'+p.id+'"'+(r.item==="p:"+p.id?" selected":"")+'>'+esc(p.name)+'</option>'; }).join("")+'</optgroup>' : '')+
+            (state.bases.length ? '<optgroup label="Bases — choose a cover">'+state.bases.map(function(bb){
+              return '<option value="b:'+bb.id+'"'+(r.item==="b:"+bb.id?" selected":"")+'>'+esc(bb.name)+'</option>'; }).join("")+'</optgroup>' : '')+
+          '</select>'+
+          (isBase ? '<select data-f="cover"><option value="">Choose…</option>'+covers.map(function(cv){
+              return '<option value="'+cv.id+'"'+(r.cover===cv.id?" selected":"")+'>'+esc(cv.name)+'</option>'; }).join("")+'</select>'
+            : '<span class="tiny faint" style="align-self:center">—</span>')+
+          '<input data-f="qty" type="number" min="1" step="1" class="mono" value="'+r.qty+'">'+
+          '<input data-f="price" type="number" min="0" step="0.01" class="mono" value="'+r.price+'">'+
+          '<button class="btn quiet sm" type="button" data-f="rm" aria-label="Remove row"'+(rows.length===1?" disabled":"")+'>×</button></div>';
+      }).join("");
+    $("x-rows").querySelectorAll(".mrow[data-i]").forEach(function(row){
+      var r=rows[Number(row.dataset.i)];
+      row.querySelectorAll("[data-f]").forEach(function(inp){
+        var f=inp.dataset.f;
+        if(f==="rm"){ inp.addEventListener("click", function(){ rows.splice(Number(row.dataset.i),1); draw(); }); return; }
+        if(f==="item" || f==="cover"){
+          inp.addEventListener("change", function(){ r[f]=inp.value; if(f==="item") r.cover=""; suggest(r); draw(); });
+          return;
+        }
+        inp.addEventListener("input", function(){ r[f]=num(inp.value); });
+      });
+    });
+  }
+  openForm("Deliver extra items — "+t.refNo, [
+    {html: rowsBox("x-rows", "Add another item")},
     {fields:[{id:"x-note", label:"Note (shows in the log)", placeholder:"Added on site, swapped model…"}]},
-    {note:"It is added to this deal as a new line and handed over from stock now. What is not in stock waits on the To deliver list."+
-      (num(t.discountPct)>0 ? " The deal's "+r2(num(t.discountPct)*100)+"% discount applies to it too." : "")}
+    {note:"Each item is added to this deal as a new line and handed over from stock now; put 0 as the price for anything given free. What is not in stock waits on the To deliver list."+
+      (num(t.discountPct)>0 ? " The deal's "+r2(num(t.discountPct)*100)+"% discount applies to them too." : "")}
   ], function(){
-    var v=val("x-item"), q=valNum("x-qty");
-    if(!v){ toast("Choose the item", true); return false; }
-    if(q<1 || q!==Math.round(q)){ toast("Enter how many", true); return false; }
-    var data={qty:q, unitPrice:valNum("x-price"), note:val("x-note")};
-    if(v.indexOf("p:")===0){ data.kind="product"; data.productId=Number(v.slice(2)); }
-    else {
-      var b=baseById(v.slice(2)), cv=coverById(val("x-cover"));
-      if(!cv){ toast("Choose the cover for this base", true); return false; }
-      if(b && cv.line && b.line && cv.line!==b.line){ toast("That cover belongs to another line", true); return false; }
-      data.kind="combo"; data.baseId=Number(v.slice(2)); data.coverId=Number(cv.id);
+    var items=[];
+    for(var i=0;i<rows.length;i++){
+      var r=rows[i], n=" on row "+(i+1);
+      if(!r.item){ toast("Choose the item"+n, true); return false; }
+      if(r.qty<1 || r.qty!==Math.round(r.qty)){ toast("Enter how many"+n, true); return false; }
+      if(r.price<0){ toast("The price cannot be below zero"+n, true); return false; }
+      var it={qty:r.qty, unitPrice:r.price};
+      if(r.item.indexOf("p:")===0){ it.kind="product"; it.productId=Number(r.item.slice(2)); }
+      else {
+        if(!r.cover){ toast("Choose the cover for the base"+n, true); return false; }
+        it.kind="combo"; it.baseId=Number(r.item.slice(2)); it.coverId=Number(r.cover);
+      }
+      items.push(it);
     }
-    send("POST", "transactions/"+t.id+"/extra", data, function(res){
+    send("POST", "transactions/"+t.id+"/extra", {note:val("x-note"), items:items}, function(res){
       closeForm(); openTx(t.id);
       toast(res && res.waiting ? res.delivered+" delivered now, "+res.waiting+" waiting for stock" : "Delivered and added to the deal");
     });
     return false;
   });
-  /* The price starts at the client's book price and can be changed (0 for a free item). */
-  function suggest(){
-    var v=val("x-item"), line=null;
-    if(v.indexOf("p:")===0) line={kind:"product", productId:v.slice(2)};
-    if(v.indexOf("b:")===0) line={kind:"combo", baseId:v.slice(2), coverId:val("x-cover")};
-    $("x-price").value = line ? r2(lineStandard(line, ctx)*txRate(t)) : 0;
-  }
-  $("x-item").addEventListener("change", suggest);
-  $("x-cover").addEventListener("change", suggest);
+  draw();
+  $("x-rows-add").addEventListener("click", function(){ rows.push({item:"", cover:"", qty:1, price:0}); draw(); });
 }
 
 /* ---------- Offer sets ---------- */

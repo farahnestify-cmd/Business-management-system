@@ -93,4 +93,36 @@ class DeliveryReturnsTest extends TestCase
         ])->json('id');
         $this->postJson("/api/transactions/$id/extra", ['kind' => 'product', 'productId' => $p->id, 'qty' => 1, 'unitPrice' => 0])->assertStatus(409);
     }
+
+    public function test_several_items_come_back_or_go_out_in_one_go(): void
+    {
+        $this->actingAs(User::create(['name' => 'O', 'email' => 'o@example.com', 'password' => 'secret123', 'role' => 'owner']));
+        $p = Product::create(['name' => 'Lock', 'category' => 'Door Lock', 'stock_on_hand' => 5]);
+        $a = Product::create(['name' => 'Sensor', 'category' => 'Accessory', 'stock_on_hand' => 4]);
+        $b = Product::create(['name' => 'Hub', 'category' => 'Accessory', 'stock_on_hand' => 4]);
+        $id = $this->deliveredDeal($p);
+        $line = Transaction::find($id)->items()->first();
+
+        // The same line twice may not add up to more than went out; nothing is saved when one row fails.
+        $this->postJson("/api/transactions/$id/returns", ['items' => [
+            ['lineId' => $line->id, 'qty' => 2, 'outcome' => 'replace'],
+            ['lineId' => $line->id, 'qty' => 2, 'outcome' => 'remove'],
+        ]])->assertStatus(422);
+        $this->assertSame(2, $p->fresh()->stock_on_hand);
+
+        $this->postJson("/api/transactions/$id/returns", ['note' => 'Client changed the plan', 'items' => [
+            ['lineId' => $line->id, 'qty' => 1, 'outcome' => 'replace'],
+            ['lineId' => $line->id, 'qty' => 1, 'outcome' => 'remove'],
+        ]])->assertOk();
+        $this->assertSame(4, $p->fresh()->stock_on_hand);
+        $this->assertSame(2, $line->fresh()->qty);
+
+        $this->postJson("/api/transactions/$id/extra", ['items' => [
+            ['kind' => 'product', 'productId' => $a->id, 'qty' => 2, 'unitPrice' => 20],
+            ['kind' => 'product', 'productId' => $b->id, 'qty' => 1, 'unitPrice' => 0],
+        ]])->assertOk()->assertJsonPath('delivered', 3)->assertJsonPath('waiting', 0);
+        $this->assertSame(2, $a->fresh()->stock_on_hand);
+        $this->assertSame(3, $b->fresh()->stock_on_hand);
+        $this->assertCount(3, Transaction::find($id)->items);
+    }
 }

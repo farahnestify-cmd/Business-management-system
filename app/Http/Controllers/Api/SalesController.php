@@ -434,85 +434,108 @@ class SalesController extends Controller
      */
     public function returnItem(Request $request, Transaction $transaction)
     {
+        // One row or several: {lineId, qty, outcome} or items: [{...}, {...}], with one note for all.
         $data = $request->validate([
-            'lineId' => 'required|integer',
-            'qty' => 'required|integer|min:1',
-            'outcome' => 'required|in:replace,remove',
+            'items' => 'nullable|array|min:1|max:50',
+            'items.*.lineId' => 'required|integer',
+            'items.*.qty' => 'required|integer|min:1',
+            'items.*.outcome' => 'required|in:replace,remove',
+            'lineId' => 'required_without:items|integer',
+            'qty' => 'required_without:items|integer|min:1',
+            'outcome' => 'required_without:items|in:replace,remove',
             'note' => 'nullable|string|max:500',
         ]);
+        $rows = $data['items'] ?? [['lineId' => $data['lineId'], 'qty' => $data['qty'], 'outcome' => $data['outcome']]];
 
-        return DB::transaction(function () use ($transaction, $data) {
+        return DB::transaction(function () use ($transaction, $data, $rows) {
             $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
             $this->requireDeliveryStage($tx);
-            $li = $tx->items()->lockForUpdate()->find($data['lineId']);
-            if (! $li || $li->kind === 'service') {
-                throw ValidationException::withMessages(['lineId' => 'Choose an item that was delivered.']);
-            }
-            if ($data['qty'] > $li->delivered_qty) {
-                throw ValidationException::withMessages(['qty' => 'Only '.$li->delivered_qty.' of '.$li->name.' went out on this deal.']);
-            }
+            $lines = $tx->items()->lockForUpdate()->get()->keyBy('id');
 
-            foreach ($this->stockParts($li) as $m) {
-                $m->stock_on_hand += $data['qty'];
-                $m->save();
-            }
-            $li->delivered_qty -= $data['qty'];
-            if ($data['outcome'] === 'remove') {
-                $li->qty -= $data['qty'];
-            }
-            $li->save();
-
-            Delivery::create([
-                'transaction_id' => $tx->id, 'transaction_item_id' => $li->id, 'qty' => $data['qty'], 'type' => 'return',
-                'note' => trim(($data['outcome'] === 'remove' ? 'Taken off the deal' : 'To be replaced').'. '.($data['note'] ?? '')),
-                'delivered_on' => now()->toDateString(), 'user_id' => auth()->id(),
-            ]);
-            $this->settleDeliveryStage($tx->fresh('items'));
-
-            return response()->json(['ok' => true]);
-        });
-    }
-
-    /**
-     * An item the offer did not list goes out on this deal: it is added as a new line
-     * (at the price given, which may be 0 for something given free) and handed over
-     * from stock straight away. What is not in stock waits on the To deliver list.
-     */
-    public function deliverExtra(Request $request, Transaction $transaction)
-    {
-        $data = $request->validate([
-            'kind' => 'required|in:product,combo',
-            'productId' => 'nullable|integer',
-            'baseId' => 'nullable|integer',
-            'coverId' => 'nullable|integer',
-            'qty' => 'required|integer|min:1',
-            'unitPrice' => 'required|numeric|min:0',
-            'note' => 'nullable|string|max:500',
-        ]);
-
-        return DB::transaction(function () use ($transaction, $data) {
-            $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
-            $this->requireDeliveryStage($tx);
-            [$row] = $this->buildItems([$data + ['standardPrice' => $data['unitPrice']]]);
-            $li = $tx->items()->create($row);
-
-            $parts = $this->stockParts($li);
-            $take = $parts ? min($li->qty, ...array_map(fn ($m) => max(0, $m->stock_on_hand), $parts)) : 0;
-            if ($take > 0) {
-                foreach ($parts as $m) {
-                    $m->stock_on_hand -= $take;
+            foreach ($rows as $i => $row) {
+                $li = $lines->get($row['lineId']);
+                if (! $li || $li->kind === 'service') {
+                    throw ValidationException::withMessages(["items.$i.lineId" => 'Choose an item that was delivered.']);
+                }
+                // Checked against what is left after the rows before it, so the same item twice cannot over-return.
+                if ($row['qty'] > $li->delivered_qty) {
+                    throw ValidationException::withMessages(["items.$i.qty" => 'Only '.$li->delivered_qty.' of '.$li->name.' is with the client.']);
+                }
+                foreach ($this->stockParts($li) as $m) {
+                    $m->stock_on_hand += $row['qty'];
                     $m->save();
                 }
-                $li->update(['delivered_qty' => $take]);
+                $li->delivered_qty -= $row['qty'];
+                if ($row['outcome'] === 'remove') {
+                    $li->qty -= $row['qty'];
+                }
+                $li->save();
+
                 Delivery::create([
-                    'transaction_id' => $tx->id, 'transaction_item_id' => $li->id, 'qty' => $take, 'type' => 'out',
-                    'note' => trim('Extra item, not on the offer. '.($data['note'] ?? '')),
+                    'transaction_id' => $tx->id, 'transaction_item_id' => $li->id, 'qty' => $row['qty'], 'type' => 'return',
+                    'note' => trim(($row['outcome'] === 'remove' ? 'Taken off the deal' : 'To be replaced').'. '.($data['note'] ?? '')),
                     'delivered_on' => now()->toDateString(), 'user_id' => auth()->id(),
                 ]);
             }
             $this->settleDeliveryStage($tx->fresh('items'));
 
-            return response()->json(['ok' => true, 'delivered' => $take, 'waiting' => $li->qty - $take]);
+            return response()->json(['ok' => true, 'returned' => count($rows)]);
+        });
+    }
+
+    /**
+     * Items the offer did not list go out on this deal: each is added as a new line
+     * (at the price given, which may be 0 for something given free) and handed over
+     * from stock straight away. What is not in stock waits on the To deliver list.
+     */
+    public function deliverExtra(Request $request, Transaction $transaction)
+    {
+        $rowRules = [
+            'kind' => 'in:product,combo',
+            'productId' => 'nullable|integer',
+            'baseId' => 'nullable|integer',
+            'coverId' => 'nullable|integer',
+            'qty' => 'integer|min:1',
+            'unitPrice' => 'numeric|min:0',
+        ];
+        $rules = ['items' => 'nullable|array|min:1|max:50', 'note' => 'nullable|string|max:500'];
+        foreach ($rowRules as $k => $r) {
+            $rules["items.*.$k"] = (str_ends_with($k, 'Id') ? '' : 'required|').$r;
+            $rules[$k] = (str_ends_with($k, 'Id') ? '' : 'required_without:items|').$r;
+        }
+        $data = $request->validate($rules);
+        $rows = $data['items'] ?? [array_intersect_key($data, $rowRules)];
+
+        return DB::transaction(function () use ($transaction, $data, $rows) {
+            $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
+            $this->requireDeliveryStage($tx);
+            $delivered = 0;
+            $waiting = 0;
+
+            foreach ($rows as $row) {
+                [$item] = $this->buildItems([$row + ['standardPrice' => $row['unitPrice']]]);
+                $li = $tx->items()->create($item);
+
+                $parts = $this->stockParts($li);
+                $take = $parts ? min($li->qty, ...array_map(fn ($m) => max(0, $m->stock_on_hand), $parts)) : 0;
+                if ($take > 0) {
+                    foreach ($parts as $m) {
+                        $m->stock_on_hand -= $take;
+                        $m->save();
+                    }
+                    $li->update(['delivered_qty' => $take]);
+                    Delivery::create([
+                        'transaction_id' => $tx->id, 'transaction_item_id' => $li->id, 'qty' => $take, 'type' => 'out',
+                        'note' => trim('Extra item, not on the offer. '.($data['note'] ?? '')),
+                        'delivered_on' => now()->toDateString(), 'user_id' => auth()->id(),
+                    ]);
+                }
+                $delivered += $take;
+                $waiting += $li->qty - $take;
+            }
+            $this->settleDeliveryStage($tx->fresh('items'));
+
+            return response()->json(['ok' => true, 'delivered' => $delivered, 'waiting' => $waiting]);
         });
     }
 
