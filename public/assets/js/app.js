@@ -1852,6 +1852,11 @@ function openDocIn(t, kind, updated){
   /* After the quotation, a line taken off the deal (nothing left, nothing with the client) is not printed. */
   var lines=(t.lineItems||[]).filter(function(li){
     if(isNote && li.kind==="service") return false;
+    /* On the updated quotation a row at 0 is one taken off the deal, unless it was an option on the original. */
+    if(updated && num(li.qty)===0){
+      var was=(t.originalLines||[]).filter(function(o){ return o.id===li.id; })[0];
+      return !!was && num(was.qty)===0;
+    }
     return kind==="Quotation" || num(li.qty)>0 || num(li.deliveredQty)>0;
   });
   /* The same item at the same price prints as one row, however many times it was added. */

@@ -60,6 +60,42 @@ class Transaction extends Model
         return (float) $this->items->sum(fn ($li) => $li->qty * $li->unit_price);
     }
 
+    /**
+     * For a deal changed by returns or extra items before the original quotation
+     * was kept: works the agreed lines back out of the delivery log. An extra item
+     * comes off again, and a unit taken off the deal goes back on.
+     */
+    public function rebuildOriginalQuote(): bool
+    {
+        if ($this->quote_snapshot !== null) {
+            return false;
+        }
+        $log = Delivery::where('transaction_id', $this->id)->get();
+        $extra = $log->filter(fn ($d) => $d->type === 'out' && str_starts_with((string) $d->note, 'Extra item'));
+        $removed = $log->filter(fn ($d) => $d->type === 'return' && str_starts_with((string) $d->note, 'Taken off the deal'));
+        if ($extra->isEmpty() && $removed->isEmpty()) {
+            return false;
+        }
+
+        $lines = [];
+        foreach ($this->items()->get() as $li) {
+            $row = $li->toApi();
+            $row['qty'] = (int) $li->qty
+                - (int) $extra->where('transaction_item_id', $li->id)->sum('qty')
+                + (int) $removed->where('transaction_item_id', $li->id)->sum('qty');
+            // A row that only exists because of extra items was not on the offer.
+            if ($row['qty'] <= 0 && $extra->where('transaction_item_id', $li->id)->isNotEmpty()) {
+                continue;
+            }
+            $row['qty'] = max(0, $row['qty']);
+            $lines[] = $row;
+        }
+        $this->quote_snapshot = json_encode($lines);
+        $this->save();
+
+        return true;
+    }
+
     /** The discount on the total: it applies to goods, not to labour. */
     public function discountAmount(): float
     {

@@ -147,4 +147,29 @@ class DeliveryReturnsTest extends TestCase
         $this->assertCount(1, $original);
         $this->assertSame(2, $original[0]['qty']);
     }
+
+    public function test_an_older_deal_gets_its_original_quote_back_from_the_log(): void
+    {
+        $this->actingAs(User::create(['name' => 'O', 'email' => 'o@example.com', 'password' => 'secret123', 'role' => 'owner']));
+        $p = Product::create(['name' => 'Screen', 'category' => 'DNAKE', 'stock_on_hand' => 9]);
+        $q = Product::create(['name' => 'Lock', 'category' => 'Door Lock', 'stock_on_hand' => 9]);
+        $id = $this->deliveredDeal($p, 2);
+        $line = Transaction::find($id)->items()->first();
+        $this->postJson("/api/transactions/$id/extra", ['items' => [
+            ['kind' => 'product', 'productId' => $p->id, 'qty' => 1, 'unitPrice' => 100],
+            ['kind' => 'product', 'productId' => $q->id, 'qty' => 1, 'unitPrice' => 50],
+        ]])->assertOk();
+        $this->postJson("/api/transactions/$id/returns", ['items' => [['lineId' => $line->id, 'qty' => 1, 'outcome' => 'remove']]])->assertOk();
+
+        // As if all that happened before originals were kept.
+        $tx = Transaction::find($id);
+        $tx->quote_snapshot = null;
+        $tx->save();
+        $this->assertTrue($tx->fresh()->rebuildOriginalQuote());
+
+        $original = collect($this->getJson('/api/bootstrap')->json('transactions'))->firstWhere('id', $id)['originalLines'];
+        $this->assertCount(1, $original);
+        $this->assertSame('Screen', $original[0]['name']);
+        $this->assertSame(2, $original[0]['qty']);
+    }
 }
