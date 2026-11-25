@@ -334,7 +334,7 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 .p-item .mono{color:var(--text-2); font-size:12px}
 
 /* ---------------- Printable documents ---------------- */
-#doc{background:#FFFFFF; color:#161A16; font-size:12.5px}
+#doc{background:#FFFFFF; color:#161A16; font-size:14.5px}
 /* One .d-page is one page of the PDF; on screen they simply stack. */
 #doc .d-page{background:#FFFFFF; padding:46px 48px 40px; position:relative}
 #doc .d-page + .d-page{border-top:1px solid #E8EAE7}
@@ -347,67 +347,67 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 #doc .d-word{font-size:22px; font-weight:500; letter-spacing:-0.01em; color:#45484B}
 #doc .d-logo{height:26px; width:auto; object-fit:contain}
 #doc .d-logo-big{height:30px; width:auto; object-fit:contain; display:block; margin-bottom:6px}
-#doc .d-bar-r{font-size:9.5px; letter-spacing:.1em; color:#8B928B}
-#doc .d-footbar{display:flex; justify-content:space-between; padding:14px 48px 20px; border-top:1px solid #E8EAE7; font-size:9px; color:#8B928B; letter-spacing:.04em}
+#doc .d-bar-r{font-size:11px; letter-spacing:.1em; color:#8B928B}
+#doc .d-footbar{display:flex; justify-content:space-between; padding:14px 48px 20px; border-top:1px solid #E8EAE7; font-size:10.5px; color:#8B928B; letter-spacing:.04em}
 #doc .d-cover{height:100%; min-height:520px; background:#FFFFFF; color:#161A16;
   display:flex; flex-direction:column; justify-content:space-between; padding:150px 46px 70px; box-sizing:border-box}
-#doc .d-cover-top{display:flex; justify-content:space-between; font-size:10px; font-weight:600; line-height:1.7; color:#3C423C}
+#doc .d-cover-top{display:flex; justify-content:space-between; font-size:11.5px; font-weight:600; line-height:1.7; color:#3C423C}
 #doc .d-cover-top .r{text-align:right}
 #doc .d-cover-mid{display:flex; flex-direction:column; align-items:center; text-align:center; padding:40px 0}
 #doc .d-cover-mid img{max-width:62%; max-height:150px; object-fit:contain; display:block}
 #doc .d-cover-word{font-size:84px; font-weight:400; letter-spacing:-0.02em; line-height:1; color:#45484B}
-#doc .d-cover-tag{margin-top:34px; font-size:9.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#161A16}
-#doc .d-cover-foot{text-align:center; font-size:15px; color:#6A716A}
+#doc .d-cover-tag{margin-top:34px; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#161A16}
+#doc .d-cover-foot{text-align:center; font-size:17px; color:#6A716A}
 #doc .d-opening{display:flex; flex-direction:column}
 #doc .d-opening-pic{flex:1; display:flex; align-items:center; justify-content:center; padding:60px 0 20px}
 #doc .d-opening-pic img{width:82%; max-height:460px; object-fit:contain; display:block; margin:0 auto}
 #doc .d-back{height:100%; min-height:520px; display:flex; flex-direction:column; justify-content:center; padding:0 60px; background:#FFFFFF; box-sizing:border-box}
 #doc .d-back img{max-width:48%; max-height:90px; object-fit:contain}
-#doc .d-back-tag{margin-top:14px; font-size:11.5px; color:#8B928B}
+#doc .d-back-tag{margin-top:14px; font-size:13px; color:#8B928B}
 /* On the branded pages the bar is the letterhead, so the sheet's own wordmark and contact strip would repeat it. */
 #doc .d-page-bar .d-mark, #doc .d-page-bar .d-foot{display:none}
 #doc .d-page-bar .d-top{justify-content:flex-end; padding-bottom:16px}
-#doc .d-intro{font-size:12.5px; font-weight:600; line-height:1.75; color:#161A16; margin:0; white-space:pre-wrap; text-align:justify}
-#doc .d-bullets{margin:40px 0 0; padding-left:18px; font-size:11px; font-weight:500; line-height:2; color:#161A16}
+#doc .d-intro{font-size:14.5px; font-weight:600; line-height:1.75; color:#161A16; margin:0; white-space:pre-wrap; text-align:justify}
+#doc .d-bullets{margin:40px 0 0; padding-left:18px; font-size:12.5px; font-weight:500; line-height:2; color:#161A16}
 .brand-box{display:flex; gap:10px; align-items:center; flex-wrap:wrap; min-height:44px}
 .brand-box img{max-height:44px; max-width:180px; object-fit:contain; border:1px solid var(--line); border-radius:var(--radius); background:#fff; padding:4px}
 #doc .d-top{display:flex; justify-content:space-between; align-items:flex-start; gap:24px; padding-bottom:20px; border-bottom:1.5px solid #161A16}
 #doc .d-mark b{display:block; font-size:24px; font-weight:500; letter-spacing:-0.01em; color:#45484B}
-#doc .d-mark span{display:block; font-size:9px; letter-spacing:.18em; text-transform:uppercase; color:#6A716A; margin-top:5px}
+#doc .d-mark span{display:block; font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:#6A716A; margin-top:5px}
 #doc .d-kind{text-align:right}
-#doc .d-kind .k{font-size:10px; font-weight:700; letter-spacing:.22em; text-transform:uppercase; color:#6A716A}
+#doc .d-kind .k{font-size:11.5px; font-weight:700; letter-spacing:.22em; text-transform:uppercase; color:#6A716A}
 #doc .d-kind .r{font-family:var(--f-mono); font-size:20px; font-weight:500; letter-spacing:-0.02em; margin-top:4px}
-#doc .d-kind .dt{font-size:10.5px; color:#6A716A; margin-top:3px; font-family:var(--f-mono)}
+#doc .d-kind .dt{font-size:12px; color:#6A716A; margin-top:3px; font-family:var(--f-mono)}
 #doc .d-meta{display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-top:22px}
-#doc .d-meta .k{font-size:8.5px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:#8B928B; margin-bottom:4px}
-#doc .d-meta .v{font-size:12px}
-#doc table{margin-top:26px; font-size:12px; width:100%; border-collapse:collapse}
-#doc thead th{background:transparent; color:#8B928B; border-bottom:1px solid #161A16; padding:7px 0; font-size:8.5px; letter-spacing:.13em}
+#doc .d-meta .k{font-size:10px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:#8B928B; margin-bottom:4px}
+#doc .d-meta .v{font-size:14px}
+#doc table{margin-top:26px; font-size:14px; width:100%; border-collapse:collapse}
+#doc thead th{background:transparent; color:#8B928B; border-bottom:1px solid #161A16; padding:7px 0; font-size:10px; letter-spacing:.13em}
 #doc thead th.num,#doc td.num{text-align:right}
 #doc tbody td{border-bottom:1px solid #E8EAE7; padding:9px 0; color:#161A16}
 #doc tbody td.num{font-family:var(--f-mono); font-variant-numeric:tabular-nums}
 #doc .d-tot{margin:14px 0 0 auto; width:270px; display:flex; flex-direction:column; gap:6px}
-#doc .d-tot .r{display:flex; justify-content:space-between; font-size:12px}
+#doc .d-tot .r{display:flex; justify-content:space-between; font-size:14px}
 #doc .d-tot .r span:last-child{font-family:var(--f-mono); font-variant-numeric:tabular-nums}
-#doc .d-tot .r.g{font-size:15px; font-weight:600; border-top:1px solid #161A16; padding-top:8px; margin-top:4px}
+#doc .d-tot .r.g{font-size:17px; font-weight:600; border-top:1px solid #161A16; padding-top:8px; margin-top:4px}
 /* The items table on printed documents: a grey heading row, ruled lines, centred figures. */
-#doc table.d-items{font-size:10.5px; border:1px solid #CFCFCF}
+#doc table.d-items{font-size:12px; border:1px solid #CFCFCF}
 #doc table.d-items th, #doc table.d-items td{padding:8px 8px; border-bottom:1px solid #DCDCDC; vertical-align:middle; text-align:left}
 #doc table.d-items .c{text-align:center}
-#doc table.d-items thead th{color:#161A16; font-size:9.5px; font-weight:600; letter-spacing:0; text-transform:none; border-bottom:1px solid #9A9A9A; background:#FFFFFF}
-#doc table.d-items tr.d-ttl th{background:#E4E4E4; text-align:center; font-size:12px; font-weight:500; padding:10px 8px; border-bottom:1px solid #CFCFCF}
+#doc table.d-items thead th{color:#161A16; font-size:11px; font-weight:600; letter-spacing:0; text-transform:none; border-bottom:1px solid #9A9A9A; background:#FFFFFF}
+#doc table.d-items tr.d-ttl th{background:#E4E4E4; text-align:center; font-size:14px; font-weight:500; padding:10px 8px; border-bottom:1px solid #CFCFCF}
 #doc table.d-items td:nth-child(2){font-weight:500}
 #doc table.d-items td.pic{padding:4px 6px}
 #doc table.d-items td.pic img{max-height:30px; max-width:80px; object-fit:contain; display:inline-block; vertical-align:middle}
 #doc table.d-items tr.opt td{font-style:italic; color:#6A716A}
-#doc table.d-tot2{width:62%; margin:0 0 0 auto; font-size:10.5px; border:1px solid #CFCFCF; border-top:none}
+#doc table.d-tot2{width:62%; margin:0 0 0 auto; font-size:12px; border:1px solid #CFCFCF; border-top:none}
 #doc table.d-tot2 td{padding:9px 10px; border-bottom:1px solid #DCDCDC; border-left:1px solid #DCDCDC; font-weight:500}
 #doc table.d-tot2 td.c{text-align:center; width:38%}
-#doc table.d-tot2 tr.g td{font-weight:700; font-size:11.5px}
-#doc .d-note{margin-top:30px; padding-top:14px; border-top:1px solid #E8EAE7; font-size:10.5px; color:#6A716A; line-height:1.6; white-space:pre-wrap}
+#doc table.d-tot2 tr.g td{font-weight:700; font-size:13px}
+#doc .d-note{margin-top:30px; padding-top:14px; border-top:1px solid #E8EAE7; font-size:12px; color:#6A716A; line-height:1.6; white-space:pre-wrap}
 #doc .d-sign{display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:38px}
-#doc .d-sign div{border-top:1px solid #161A16; padding-top:7px; font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; color:#6A716A}
-#doc .d-foot{margin-top:26px; display:flex; justify-content:space-between; font-size:9.5px; color:#8B928B; letter-spacing:.04em}
+#doc .d-sign div{border-top:1px solid #161A16; padding-top:7px; font-size:11px; letter-spacing:.11em; text-transform:uppercase; color:#6A716A}
+#doc .d-foot{margin-top:26px; display:flex; justify-content:space-between; font-size:11px; color:#8B928B; letter-spacing:.04em}
 #doc-sheet{max-width:760px}
 #doc-sheet .sheet-body{padding:0; background:#EFF1EE}
 

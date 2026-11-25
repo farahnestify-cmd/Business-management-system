@@ -15,6 +15,7 @@ class Client extends Model
         return [
             'id' => self::sid($this->id),
             'name' => $this->name,
+            'salutation' => (string) $this->salutation,
             'type' => $this->type,
             'tierId' => self::sid($this->tier_id),
             'region' => $this->region,

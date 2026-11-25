@@ -50,6 +50,7 @@ class RecordController extends Controller
 
         return match ($collection) {
             'clients' => [Client::class, 'any', $name + [
+                'salutation' => ['salutation', 'nullable|in:Mr.,Mrs.,Ms.'],
                 'type' => ['type', 'required|in:End User,Dealer,Partner'],
                 'tierId' => ['tier_id', 'nullable|integer|exists:price_tiers,id'],
                 'region' => ['region', 'required|in:West Bank,48 Region'],

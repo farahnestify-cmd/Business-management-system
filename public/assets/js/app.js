@@ -1675,7 +1675,7 @@ function openDocIn(t, kind){
         '<div class="dt">'+fmtDate(dateMap[kind]||todayISO())+'</div></div>'+
     '</div>'+
     '<div class="d-meta">'+
-      '<div><div class="k">Prepared for</div><div class="v">'+esc(t.clientName||"")+(client.phone?'<br>'+esc(client.phone):"")+'</div></div>'+
+      '<div><div class="k">Prepared for</div><div class="v">'+esc(clientAddress(t))+(client.phone?'<br>'+esc(client.phone):"")+'</div></div>'+
       '<div><div class="k">'+(t.site ? "Site" : "Region")+'</div><div class="v">'+esc(t.site||t.region||"")+'</div></div>'+
       '<div><div class="k">Scope</div><div class="v">'+esc(t.serviceType==="With Programming"?"Supply and programming":"Supply only")+'</div></div>'+
       '<div><div class="k">'+(kind==="Quotation"?"Valid until":"Reference")+'</div><div class="v">'+
@@ -1708,7 +1708,7 @@ function openDocIn(t, kind){
     /* A white cover: who it is for at the top, the logo in the middle, the welcome line at the foot. */
     var cover =
       '<div class="d-cover">'+
-        '<div class="d-cover-top"><div><div>Subject: Price Offer</div><div>To: '+esc(t.clientName||"")+'</div>'+
+        '<div class="d-cover-top"><div><div>Subject: Price Offer</div><div>To: '+esc(clientAddress(t))+'</div>'+
           (t.site ? '<div>Project: '+esc(t.site)+'</div>' : '')+'<div>Date Issued: '+fmtDate(dateMap[kind]||todayISO())+'</div></div>'+
           '<div class="r">Offer No.: '+esc(refMap[kind])+'</div></div>'+
         '<div class="d-cover-mid">'+logoOrName(true)+'<div class="d-cover-tag">Price Offer</div></div>'+
@@ -1737,7 +1737,12 @@ function addDays(iso, n){
   return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 }
 $("doc-close").addEventListener("click", function(){ $("doc-overlay").hidden=true; });
-$("doc-print").addEventListener("click", function(){ window.print(); });
+/* The browser names a printed PDF after the page title, so the title takes the file name while printing. */
+$("doc-print").addEventListener("click", function(){
+  var keep=document.title; document.title=docBaseName();
+  window.print();
+  setTimeout(function(){ document.title=keep; }, 1000);
+});
 
 /* ---------- Download PDF: the document drawn at A4 width and saved as a file ----------
    html2canvas + jsPDF (both MIT) ship with the app, so this works offline too. */
@@ -1781,9 +1786,20 @@ function docToPdf(){
   };
   return shoot(0).then(function(r){ cleanup(); return r; }, function(e){ cleanup(); throw e; });
 }
-function docFileName(){
-  var t=String($("doc-title").textContent||"Document");
-  return (t.replace(/[^A-Za-z0-9 _-]+/g, " ").replace(/\s+/g, " ").trim().replace(/ /g, "-") || "Document")+".pdf";
+/* "Mr. Ahmad Luhaidi -NEST-2611WD04": how the client is addressed, then the document's number. */
+function docBaseName(){
+  var t=docState.t, kind=docState.kind;
+  if(!t) return "Document";
+  var ref={"Quotation":t.refNo, "Agreement":agreementRef(t.refNo), "Invoice":invoiceRef(t.refNo),
+           "Delivery Note":invoiceRef(t.refNo), "Receipt":invoiceRef(t.refNo)}[kind] || t.refNo;
+  var name=clientAddress(t)+" -NEST-"+ref+(kind && kind!=="Quotation" ? " "+kind : "");
+  /* Arabic names stay; only characters a file name cannot hold are dropped. */
+  return name.replace(/[\\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "Document";
+}
+function docFileName(){ return docBaseName()+".pdf"; }
+function clientAddress(t){
+  var c=clientById(t.clientId)||{};
+  return ((c.salutation ? c.salutation+" " : "")+(t.clientName||c.name||"")).trim();
 }
 $("doc-pdf").addEventListener("click", function(){
   var btn=this; if(btn.disabled) return;
@@ -2381,11 +2397,14 @@ function openContact(id){
   });
 }
 function editClient(c){
-  var isNew=!c; var d=c||{name:"", type:"End User", region:"West Bank", discountPct:0, phone:"", email:"", notes:"", tierId:""};
+  var isNew=!c; var d=c||{name:"", salutation:"", type:"End User", region:"West Bank", discountPct:0, phone:"", email:"", notes:"", tierId:""};
   var tiers=[{value:"",label:"None — priced by type"}].concat((state.tiers||[]).filter(function(t){ return t.active || t.id===d.tierId; })
     .map(function(t){ return {value:t.id, label:t.name+" · "+(t.basis==="Dealer"?"dealer":"end-user")+" prices"+(num(t.discountPct)>0?" − "+pct(t.discountPct,1):"")}; }));
   openForm((isNew?"Add":"Edit")+" contact", [
-    {fields:[{id:"c-name", label:"Name", value:d.name},
+    {fields:[{id:"c-sal", label:"Title", type:"select", value:d.salutation||"",
+              options:[{value:"",label:"— (a company)"},{value:"Mr.",label:"Mr."},{value:"Mrs.",label:"Mrs."},{value:"Ms.",label:"Ms."}]},
+             {id:"c-name", label:"Name", value:d.name}]},
+    {fields:[
              {id:"c-type", label:"Type", type:"select", options:["End User","Dealer","Partner"], value:d.type},
              {id:"c-region", label:"Region", type:"select", options:["West Bank","48 Region"], value:d.region}]},
     {fields:[{id:"c-tier", label:"Price tier", type:"select", options:tiers, value:d.tierId||""},
@@ -2396,7 +2415,7 @@ function editClient(c){
     {note:"Region and the tier (or the type, without a tier) decide which price column the offer builder uses."}
   ], function(){
     if(!val("c-name")){ toast("Name is required", true); return false; }
-    save("clients", isNew?null:c.id, {name:val("c-name"), type:val("c-type"), region:val("c-region"),
+    save("clients", isNew?null:c.id, {name:val("c-name"), salutation:val("c-sal")||null, type:val("c-type"), region:val("c-region"),
       tierId:val("c-tier")?Number(val("c-tier")):null, discountPct:valNum("c-disc")/100, phone:val("c-phone"), email:val("c-email"), notes:val("c-notes")},
       function(){ toast("Contact saved"); });
   }, isNew ? null : function(){ remove("clients", c.id, c.name); });
