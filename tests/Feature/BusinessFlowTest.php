@@ -66,7 +66,7 @@ class BusinessFlowTest extends TestCase
 
         $tx = collect($this->getJson('/api/bootstrap')->json('transactions'))->firstWhere('id', $id);
         $this->assertSame('Delivered', $tx['status']);
-        $this->assertSame('Switch · Black', $tx['lineItems'][1]['name']);
+        $this->assertSame('Switch', $tx['lineItems'][1]['name']); // the colour is not part of the name the client sees
         $this->assertEquals(12, $tx['lineItems'][1]['costSnapshot']);
         $this->assertSame(['Down Payment', 'Balance Payment'], array_column($tx['payments'], 'type'));
     }

@@ -44,6 +44,7 @@ class OfferSetController extends Controller
             'lines.*.productId' => 'nullable|integer',
             'lines.*.baseId' => 'nullable|integer',
             'lines.*.coverId' => 'nullable|integer',
+            'lines.*.coverType' => 'nullable|string|max:20',
             'lines.*.serviceId' => 'nullable|integer',
             'lines.*.name' => 'nullable|string|max:255',
             'lines.*.unit' => 'nullable|string|max:40',
@@ -53,7 +54,7 @@ class OfferSetController extends Controller
             // Only what identifies a row is kept: a set is the list, not the order.
             $out['lines'] = array_map(fn ($l) => array_filter([
                 'kind' => $l['kind'], 'productId' => $l['productId'] ?? null, 'baseId' => $l['baseId'] ?? null,
-                'coverId' => $l['coverId'] ?? null, 'serviceId' => $l['serviceId'] ?? null,
+                'coverId' => $l['coverId'] ?? null, 'coverType' => $l['coverType'] ?? null, 'serviceId' => $l['serviceId'] ?? null,
                 'name' => $l['name'] ?? null, 'unit' => $l['unit'] ?? null,
             ], fn ($v) => $v !== null && $v !== ''), array_values($data['lines']));
         }

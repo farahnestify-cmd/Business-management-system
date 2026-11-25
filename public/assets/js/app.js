@@ -15,7 +15,7 @@ var DEFAULTS = {
 var state = {
   view:"today", tab:{inventory:"stock", money:"pl"},
   filters:{sales:"open", contacts:"all", ledger:"all"},
-  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[], services:[], sets:[], tiers:[], currencies:[],
+  clients:[], products:[], bases:[], covers:[], transactions:[], expenses:[], deliveries:[], trash:[], services:[], sets:[], tiers:[], currencies:[], coverTypes:[],
   employees:[], payroll:[], suppliers:[], orders:[], users:[], user:null,
   settings:Object.assign({}, DEFAULTS),
   offer:{lines:[]}, ready:false, q:""
@@ -147,30 +147,49 @@ function serviceById(id){ return byId(state.services||[], id); }
 function lineStandard(line, ctx){
   if(line.kind==="service"){ var sv=serviceById(line.serviceId); return sv ? num(sv.rate) : num(line.unitPrice); }
   if(line.kind==="combo"){
-    var b=baseById(line.baseId), c=coverById(line.coverId);
+    var b=baseById(line.baseId), c=coverById(line.coverId), ct=coverTypeOf(line);
     if(!b) return 0;
-    return standardUnitPrice(b, ctx.clientType, ctx.region, ctx.service) + (c ? num(c.priceAddOn) : 0);
+    /* Sold by cover type: the base plus the type's add-on for this client's price column.
+       An older line chosen by colour keeps the cover's own add-on. */
+    var add = line.coverType && ct ? num(ctx.clientType==="Dealer" ? ct.addOnDealer : ct.addOnEndUser) : (c ? num(c.priceAddOn) : 0);
+    return standardUnitPrice(b, ctx.clientType, ctx.region, ctx.service) + add;
   }
   return standardUnitPrice(productById(line.productId), ctx.clientType, ctx.region, ctx.service);
 }
 function lineCost(line){
   if(line.kind==="service") return 0; /* labour: no stock, no cost of goods */
-  if(line.kind==="combo") return itemCost(baseById(line.baseId)) + itemCost(coverById(line.coverId));
+  if(line.kind==="combo"){
+    var cv=coverById(line.coverId);
+    if(cv) return itemCost(baseById(line.baseId)) + itemCost(cv);
+    /* Colour not chosen yet: the average cost of that type's covers. */
+    var same=state.covers.filter(function(x){ return x.line===line.coverType; });
+    return itemCost(baseById(line.baseId)) + (same.length ? sum(same, itemCost)/same.length : 0);
+  }
   return itemCost(productById(line.productId));
 }
 function lineName(line){
   if(line.kind==="service") return line.name || "Service";
   if(line.kind==="combo"){
-    var b=baseById(line.baseId), c=coverById(line.coverId);
-    if(!b) return "";
-    return b.name + (c ? " · " + c.name : "");
+    /* The client sees the base's name; type and colour are for the team. */
+    var b=baseById(line.baseId);
+    return b ? b.name : "";
   }
   var p=productById(line.productId);
   return p ? p.name : "";
 }
 function lineReady(line){
   if(line.kind==="service") return !!(line.name||"").trim();
-  return line.kind==="combo" ? !!(line.baseId && line.coverId) : !!line.productId;
+  return line.kind==="combo" ? !!(line.baseId && (line.coverType || line.coverId)) : !!line.productId;
+}
+function coverTypeByCode(code){ return code ? (state.coverTypes||[]).filter(function(t){ return t.code===code; })[0] || null : null; }
+function coverTypeOf(line){ var c=coverById(line.coverId); return coverTypeByCode(line.coverType || (c && c.line)); }
+/* A base sold with a cover type, whose colours are still to be chosen. */
+function needsColour(li){ return li.kind==="combo" && !li.coverId; }
+/* For the team only: "Q · Black Glossy" or "Q · colours to choose". */
+function comboDetail(li){
+  if(li.kind!=="combo") return "";
+  var c=coverById(li.coverId), type=li.coverType || (c && c.line) || "";
+  return [type, c ? c.name : "colours to choose"].filter(Boolean).join(" · ");
 }
 
 /* ============================================================
@@ -269,11 +288,12 @@ function deliveryPlan(t){
   }
   (t.lineItems||[]).forEach(function(li){
     var left=lineLeft(li); if(!left) return;
+    if(needsColour(li)){ later.push({name:li.name+" (choose the cover colours)", qty:left, li:li}); return; }
     var keys = li.kind==="combo" ? [onShelf("base",li.baseId), onShelf("cover",li.coverId)] : [onShelf("product",li.productId)];
     var take=Math.min.apply(null, [left].concat(keys.map(function(k){ return shelf[k]; })));
     keys.forEach(function(k){ shelf[k]-=take; });
-    if(take>0) now.push({name:li.name, qty:take});
-    if(left-take>0) later.push({name:li.name, qty:left-take});
+    if(take>0) now.push({name:li.name+(li.kind==="combo" && coverById(li.coverId) ? " · "+coverById(li.coverId).name : ""), qty:take, li:li});
+    if(left-take>0) later.push({name:li.name, qty:left-take, li:li});
   });
   return {now:now, later:later};
 }
@@ -402,7 +422,7 @@ function api(method, path, body){
 function reload(){
   if(loading) return loading;
   loading = api("GET", "bootstrap").then(function(d){
-    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash","services","sets","tiers","currencies"].forEach(function(k){
+    ["clients","products","bases","covers","transactions","expenses","employees","payroll","suppliers","orders","users","deliveries","trash","services","sets","tiers","currencies","coverTypes"].forEach(function(k){
       state[k] = d[k] || [];
     });
     state.user = d.user;
@@ -797,6 +817,11 @@ function buildQueue(){
         value:"", go:function(){ setView("inventory"); openStockItem(r.kind, r.item); }});
     }
   });
+  state.transactions.filter(function(t){ return (t.status==="Agreement" || t.status==="Invoiced") && (t.lineItems||[]).some(needsColour); }).forEach(function(t){
+    var n=sum((t.lineItems||[]).filter(needsColour), function(li){ return num(li.qty); });
+    items.push({sev:"warn", area:"sales", title:"Choose the cover colours for "+t.clientName,
+      detail:t.refNo+" · "+n+" base"+(n>1?"s":"")+" waiting for their colours", value:"", go:function(){ setView("sales"); openTx(t.id); }});
+  });
   state.transactions.filter(function(t){ return t.status==="Invoiced" && deliveredSome(t); }).forEach(function(t){
     var plan=deliveryPlan(t);
     if(!plan.now.length) return;
@@ -966,7 +991,8 @@ function openTxIn(id){
     var unitCost = li.costSnapshot!=null ? num(li.costSnapshot) : lineCost(li);
     var lineMargin = num(li.qty)*(toBase(t,netUnit(t,li))-unitCost);
     var left=lineLeft(li);
-    return '<tr><td>'+esc(li.name)+(li.kind==="service" ? '<div class="tiny faint">labour · no stock</div>' : '')+'</td><td class="num">'+num(li.qty)+(li.unit ? ' <span class="tiny faint">'+esc(li.unit)+'</span>' : '')+'</td>'+
+    return '<tr><td>'+esc(li.name)+(li.kind==="service" ? '<div class="tiny faint">labour · no stock</div>' : '')+
+      (li.kind==="combo" ? '<div class="tiny '+(needsColour(li)?'" style="color:var(--warn)':'faint"')+'>'+esc(comboDetail(li))+'</div>' : '')+'</td><td class="num">'+num(li.qty)+(li.unit ? ' <span class="tiny faint">'+esc(li.unit)+'</span>' : '')+'</td>'+
       (showDelivered ? '<td class="num">'+(li.kind==="service" ? '<span class="faint">—</span>' : (left>0 ? '<span style="color:var(--warn)">'+num(li.deliveredQty)+'</span>' : num(li.deliveredQty)))+'</td>' : '')+
       '<td class="num">'+money(li.unitPrice)+'</td>'+
       '<td class="num c-cost">'+(unitCost>0 ? usd(lineMargin) : '<span class="faint">—</span>')+'</td>'+
@@ -1033,6 +1059,10 @@ function openTxIn(id){
       (txPaid(t)>0 ? '<button class="btn sm" type="button" data-doc="Receipt">Receipt</button>' : '')+
     '</div>'+
     deliveryLogHtml(t, false)+
+    ((t.status==="Agreement" || t.status==="Invoiced") && (t.lineItems||[]).some(needsColour) ?
+      '<div class="panel" style="padding:12px 14px; display:flex; gap:12px; align-items:center; justify-content:space-between">'+
+        '<div class="tiny">The client agreed: choose the cover colours and how many of each, so the covers are reserved and can be delivered.</div>'+
+        '<button class="btn sm primary" type="button" id="tx-colours" style="white-space:nowrap">Choose cover colours</button></div>' : '')+
     (isBilled(t) ? '<div style="display:flex; gap:8px; flex-wrap:wrap">'+
       (deliveredSome(t) ? '<button class="btn sm" type="button" id="tx-return">Return items</button>' : '')+
       '<button class="btn sm" type="button" id="tx-extra">Deliver extra items</button></div>' : '')+
@@ -1075,6 +1105,7 @@ function openTxIn(id){
   });
   if($("tx-edit")) $("tx-edit").addEventListener("click", function(){ closeDrawer(); openComposer(t, "edit"); });
   if($("tx-return")) $("tx-return").addEventListener("click", function(){ returnItemForm(t); });
+  if($("tx-colours")) $("tx-colours").addEventListener("click", function(){ coloursForm(t); });
   if($("tx-extra")) $("tx-extra").addEventListener("click", function(){ extraItemForm(t); });
   if($("tx-revise")) $("tx-revise").addEventListener("click", function(){ closeDrawer(); openComposer(t, "revise"); });
   $("drawer-body").querySelectorAll("[data-ver]").forEach(function(a){
@@ -1116,10 +1147,10 @@ function advance(t, next){
    17. OFFER COMPOSER
    ============================================================ */
 /* With a quotation, the composer edits it; without, it starts a new offer. */
-function blankLine(){ return {kind:"product", productId:"", baseId:"", coverId:"", serviceId:"", name:"", unit:"", qty:1, unitPrice:0, touched:false}; }
+function blankLine(){ return {kind:"product", productId:"", baseId:"", coverId:"", coverType:"", serviceId:"", name:"", unit:"", qty:1, unitPrice:0, touched:false}; }
 function linesFrom(t){
   return (t.lineItems||[]).map(function(li){
-    return {kind:li.kind, productId:li.productId||"", baseId:li.baseId||"", coverId:li.coverId||"", serviceId:li.serviceId||"",
+    return {kind:li.kind, productId:li.productId||"", baseId:li.baseId||"", coverId:li.coverId||"", coverType:li.coverType||"", serviceId:li.serviceId||"",
       name:li.kind==="service" ? li.name : "", unit:li.unit||"", qty:num(li.qty), unitPrice:num(li.unitPrice), touched:true};
   });
 }
@@ -1249,6 +1280,72 @@ function deliveryLogHtml(t, printed){
   return '<div class="section"><p class="eyebrow">Delivery log</p><div class="panel"><div class="table-wrap"><table>'+
     '<thead><tr><th>Date</th><th>Movement</th><th>Item</th><th class="num">Qty</th><th>By</th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
 }
+/* After agreement: each base line sold by cover type gets its colours and how many of each. */
+function coloursForm(t){
+  var lines=(t.lineItems||[]).filter(function(li){ return needsColour(li) && !num(li.deliveredQty); });
+  if(!lines.length){ toast("Every line already has its colours", true); return; }
+  var picks={};
+  lines.forEach(function(li){ picks[li.id]=[{coverId:"", qty:num(li.qty)}]; });
+  function sumLine(id){
+    var li=byId(lines, id), total=sum(picks[id], function(r){ return num(r.qty); }), el=$("cl-box").querySelector('[data-sum="'+id+'"]');
+    if(el){ el.textContent=total+" of "+num(li.qty)+" chosen"; el.style.color = total===num(li.qty) ? "var(--good)" : "var(--warn)"; }
+  }
+  function coversFor(li){ return state.covers.filter(function(c){ return !li.coverType || !c.line || c.line===li.coverType; }); }
+  function draw(){
+    $("cl-box").innerHTML = lines.map(function(li){
+      var rows=picks[li.id], total=sum(rows, function(r){ return num(r.qty); }), ok=total===num(li.qty);
+      return '<div class="panel" style="padding:12px 14px; margin-bottom:10px">'+
+        '<div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:8px"><div class="strong">'+esc(li.name)+
+          ' <span class="tiny faint">· '+esc(li.coverType||"")+' · '+num(li.qty)+' in all</span></div>'+
+          '<div class="tiny" data-sum="'+li.id+'" style="color:'+(ok?"var(--good)":"var(--warn)")+'">'+total+' of '+num(li.qty)+' chosen</div></div>'+
+        rows.map(function(r, k){
+          var cv=coverById(r.coverId);
+          return '<div class="mrow mrow-c" data-l="'+li.id+'" data-k="'+k+'">'+
+            '<select data-f="coverId"><option value="">Colour…</option>'+coversFor(li).map(function(c){
+              return '<option value="'+c.id+'"'+(c.id===r.coverId?" selected":"")+'>'+esc(c.name)+' · '+availableOf("cover",c)+' available</option>'; }).join("")+'</select>'+
+            '<input data-f="qty" type="number" min="1" step="1" class="mono" value="'+num(r.qty)+'">'+
+            '<button class="btn quiet sm" type="button" data-f="rm"'+(rows.length===1?" disabled":"")+' aria-label="Remove colour">×</button></div>'+
+            (cv && num(r.qty)>availableOf("cover",cv) ? '<div class="tiny" style="color:var(--warn); margin:-2px 0 6px">only '+availableOf("cover",cv)+' '+esc(cv.name)+' available — the rest waits for stock</div>' : '');
+        }).join("")+
+        '<button class="btn sm" type="button" data-add="'+li.id+'" style="margin-top:6px">Add another colour</button></div>';
+    }).join("");
+    $("cl-box").querySelectorAll(".mrow[data-l]").forEach(function(row){
+      var r=picks[row.dataset.l][Number(row.dataset.k)];
+      row.querySelectorAll("[data-f]").forEach(function(inp){
+        var f=inp.dataset.f;
+        if(f==="rm"){ inp.addEventListener("click", function(){ picks[row.dataset.l].splice(Number(row.dataset.k),1); draw(); }); return; }
+        /* Typing a quantity only updates the count, so the box keeps its focus. */
+        if(f==="qty"){ inp.addEventListener("input", function(){ r.qty=num(inp.value); sumLine(row.dataset.l); }); return; }
+        inp.addEventListener("change", function(){ r[f]=inp.value; draw(); });
+      });
+    });
+    $("cl-box").querySelectorAll("[data-add]").forEach(function(b){
+      b.addEventListener("click", function(){
+        var li=byId(lines, b.dataset.add), rows=picks[li.id];
+        var left=num(li.qty)-sum(rows, function(r){ return num(r.qty); });
+        rows.push({coverId:"", qty:Math.max(1,left)}); draw();
+      });
+    });
+  }
+  openForm("Cover colours — "+t.refNo, [
+    {html:'<div id="cl-box"></div>'},
+    {note:"Each colour becomes its own line at the same price; the client's papers still print one row per base. The covers are reserved now and taken from stock at delivery."}
+  ], function(){
+    var out=[];
+    for(var i=0;i<lines.length;i++){
+      var li=lines[i], rows=picks[li.id];
+      if(rows.some(function(r){ return !r.coverId; })){ toast("Choose a colour on every row of "+li.name, true); return false; }
+      if(rows.some(function(r){ return num(r.qty)<1 || num(r.qty)!==Math.round(num(r.qty)); })){ toast("Enter how many of each colour for "+li.name, true); return false; }
+      var total=sum(rows, function(r){ return num(r.qty); });
+      if(total!==num(li.qty)){ toast("The colours for "+li.name+" add up to "+total+", not "+num(li.qty), true); return false; }
+      out.push({lineId:Number(li.id), covers:rows.map(function(r){ return {coverId:Number(r.coverId), qty:num(r.qty)}; })});
+    }
+    send("POST", "transactions/"+t.id+"/colours", {lines:out}, function(){ closeForm(); openTx(t.id); }, "Cover colours saved");
+    return false;
+  });
+  draw();
+}
+
 /* Both forms below hold several rows; each row is redrawn from its little state array. */
 function rowsBox(id, addLabel){
   return '<div id="'+id+'" class="mrows"></div><button class="btn sm" type="button" id="'+id+'-add" style="margin-top:8px">'+addLabel+'</button>';
@@ -1394,7 +1491,7 @@ function applySet(id){
   var st=byId(state.sets, id); if(!st) return;
   var rows=(st.lines||[]).map(function(l){
     var sv=l.kind==="service" && l.serviceId ? serviceById(l.serviceId) : null;
-    return {kind:l.kind||"product", productId:l.productId||"", baseId:l.baseId||"", coverId:l.coverId||"", serviceId:l.serviceId||"",
+    return {kind:l.kind||"product", productId:l.productId||"", baseId:l.baseId||"", coverId:l.coverId||"", coverType:l.coverType||"", serviceId:l.serviceId||"",
       name:l.kind==="service" ? (l.name || (sv && sv.name) || "") : "", unit:l.unit||(sv && sv.unit)||"", qty:0,
       unitPrice: sv ? num(sv.rate) : 0, touched: l.kind==="service"};
   });
@@ -1415,7 +1512,7 @@ $("of-set-save").addEventListener("click", function(){
   ], function(){
     if(!val("ls-name")){ toast("Give it a name first", true); return false; }
     save("offer_sets", null, {name:val("ls-name"), lines:rows.map(function(l){
-      return {kind:l.kind, productId:l.productId||null, baseId:l.baseId||null, coverId:l.coverId||null, serviceId:l.serviceId||null,
+      return {kind:l.kind, productId:l.productId||null, baseId:l.baseId||null, coverId:l.coverId||null, coverType:l.coverType||null, serviceId:l.serviceId||null,
         name:l.kind==="service" ? (l.name||"") : null, unit:l.unit||null};
     })}, function(){ renderSetPicker(); toast("Saved as a set — it is on the list next time"); });
   });
@@ -1565,7 +1662,7 @@ function renderComposerIn(){
     if(ln.kind==="combo"){ var bb=baseById(ln.baseId), cc=coverById(ln.coverId);
       if(bb) avail=availableOf("base",bb); if(cc) avail=Math.min(avail==null?Infinity:avail, availableOf("cover",cc)); }
     else if(ln.kind!=="service"){ var pp=productById(ln.productId); if(pp) avail=availableOf("product",pp); }
-    var covers = ln.kind==="combo" && ln.baseId ? state.covers.filter(function(c){ var b=baseById(ln.baseId); return b && c.line===b.line; }) : [];
+    var types=state.coverTypes||[];
     return '<div class="li" data-i="'+i+'">'+
       '<div><div class="lbl">Item</div>'+
         '<select data-f="item">'+
@@ -1582,8 +1679,10 @@ function renderComposerIn(){
         '</select>'+
         (ln.kind==="service" ? '<input data-f="svcname" type="text" style="margin-top:6px" placeholder="What the work is" value="'+esc(ln.name||"")+'">'+
           '<div class="tiny faint" style="margin-top:4px">labour · no stock'+(ln.unit ? ' · per '+esc(ln.unit) : '')+'</div>' : '')+
-        (ln.kind==="combo" ? '<select data-f="cover"><option value="">Choose colour and finish…</option>'+covers.map(function(c){
-          return '<option value="'+c.id+'"'+(c.id===ln.coverId?" selected":"")+'>'+esc(c.name)+'</option>'; }).join("")+'</select>' : '')+
+        /* A base is offered with a cover type only (Q, S…); the colours come after the client agrees. */
+        (ln.kind==="combo" ? '<select data-f="ctype"><option value="">Cover type…</option>'+types.map(function(ct){
+            return '<option value="'+esc(ct.code)+'"'+(ct.code===(ln.coverType || (coverById(ln.coverId)||{}).line)?" selected":"")+'>'+esc(ct.code)+(ct.name && ct.name!==ct.code ? ' — '+esc(ct.name) : '')+'</option>'; }).join("")+'</select>'+
+          '<div class="tiny faint" style="margin-top:4px">'+(coverById(ln.coverId) ? 'colour: '+esc(coverById(ln.coverId).name) : 'not shown to the client · colours after approval')+'</div>' : '')+
       '</div>'+
       '<div><div class="lbl">'+(ln.kind==="service" ? "Units" : "Qty")+'</div><input data-f="qty" type="number" min="0" step="1" value="'+num(ln.qty)+'">'+
         (num(ln.qty)===0 && lineReady(ln) ? '<div class="tiny faint" style="margin-top:4px">optional</div>' : '')+
@@ -1610,7 +1709,12 @@ function renderComposerIn(){
           var v=inp.value;
           L.serviceId=""; L.touched=false;
           if(v.indexOf("p:")===0){ L.kind="product"; L.productId=v.slice(2); L.baseId=""; L.coverId=""; }
-          else if(v.indexOf("b:")===0){ L.kind="combo"; L.baseId=v.slice(2); L.productId=""; L.coverId=""; }
+          else if(v.indexOf("b:")===0){
+            L.kind="combo"; L.baseId=v.slice(2); L.productId=""; L.coverId="";
+            /* Start from the base's own line when it is a type, otherwise the only type there is. */
+            var bb2=baseById(L.baseId), ts=state.coverTypes||[];
+            L.coverType = (bb2 && coverTypeByCode(bb2.line)) ? bb2.line : (ts.length===1 ? ts[0].code : "");
+          }
           else if(v.indexOf("s:")===0){
             /* A service is charged at its rate, not discounted like the price book. */
             L.kind="service"; L.productId=""; L.baseId=""; L.coverId="";
@@ -1619,7 +1723,7 @@ function renderComposerIn(){
             L.unitPrice = sv ? Math.round(num(sv.rate)*(num(state.offer.fxRate)||1)*100)/100 : 0; L.touched=true;
           }
           else { L.kind="product"; L.productId=""; L.baseId=""; L.coverId=""; }
-        } else if(f==="cover"){ L.coverId=inp.value; L.touched=false; }
+        } else if(f==="ctype"){ L.coverType=inp.value; L.coverId=""; L.touched=false; }
         else if(f==="price"){ L.touched=true; L.unitPrice=num(inp.value); }
         else if(f==="qty"){ L.qty=num(inp.value); }
         renderComposer();
@@ -1771,7 +1875,7 @@ $("of-save").addEventListener("click", function(){
     lines:done.map(function(l){
       var base={kind:l.kind, qty:num(l.qty), standardPrice:Math.round(offerStandard(l,ctx)*100)/100, unitPrice:num(l.unitPrice)};
       if(l.kind==="service"){ base.serviceId=l.serviceId||null; base.name=(l.name||"").trim(); base.unit=l.unit||""; }
-      else if(l.kind==="combo"){ base.baseId=l.baseId; base.coverId=l.coverId; } else { base.productId=l.productId; }
+      else if(l.kind==="combo"){ base.baseId=l.baseId; base.coverId=l.coverId||null; base.coverType=l.coverType || (coverById(l.coverId)||{}).line || null; } else { base.productId=l.productId; }
       return base;
     })
   };
@@ -1833,10 +1937,17 @@ function openDoc(t, kind){
 /* Whole amounts print without cents ($90), others with them ($90.50). */
 function docMoney(v){ var n=num(v); return money(n, Math.abs(n-Math.round(n))<0.005 ? 0 : 2); }
 /* A line's picture: the product's, or for a base + cover the cover's (its colour), else the base's. */
-function lineImage(li){
-  if(li.kind==="service") return "";
-  if(li.kind==="combo"){ var c=coverById(li.coverId), b=baseById(li.baseId); return (c&&c.image) || (b&&b.image) || ""; }
-  var p=productById(li.productId); return (p&&p.image) || "";
+function lineImage(li){ return lineImages(li)[0] || ""; }
+/* A base sold with a cover type shows that type's pictures of the base (up to four, side by side). */
+function lineImages(li){
+  if(li.kind==="service") return [];
+  if(li.kind==="combo"){
+    var c=coverById(li.coverId), b=baseById(li.baseId), type=li.coverType || (c && c.line);
+    var set = b && b.typeImages && type ? (b.typeImages[type]||[]) : [];
+    if(set.length) return set;
+    var one=(c&&c.image) || (b&&b.image); return one ? [one] : [];
+  }
+  var p=productById(li.productId); return p && p.image ? [p.image] : [];
 }
 function openDocIn(t, kind, updated){
   docState.t=t; docState.kind=kind;
@@ -1865,7 +1976,8 @@ function openDocIn(t, kind, updated){
   /* The same item at the same price prints as one row, however many times it was added. */
   var merged=[], seen={};
   lines.forEach(function(li){
-    var key = li.kind==="service" ? null : [li.kind, li.productId||"", li.baseId||"", li.coverId||"", r2(li.unitPrice)].join("|");
+    /* Colours split a base line for the warehouse; the client's papers print it as one row. */
+    var key = li.kind==="service" ? null : [li.kind, li.productId||"", li.baseId||"", isNote ? (li.coverId||"") : (li.coverType || (coverById(li.coverId)||{}).line || li.coverId || ""), r2(li.unitPrice)].join("|");
     if(key && seen[key]){ seen[key].qty=num(seen[key].qty)+num(li.qty); seen[key].deliveredQty=num(seen[key].deliveredQty)+num(li.deliveredQty); return; }
     var copy=Object.assign({}, li); merged.push(copy); if(key) seen[key]=copy;
   });
@@ -1879,8 +1991,10 @@ function openDocIn(t, kind, updated){
     (isNote ? '<th class="c">Ordered</th><th class="c">Delivered</th><th class="c">Still to come</th>'
       : '<th class="c">Quantity</th><th class="c">Unit Price ('+esc(code)+')</th><th class="c">Amount ('+esc(code)+')</th>')+'</tr>';
   var rows=lines.map(function(li, i){
-    var pic = withPics ? '<td class="c pic">'+(lineImage(li) ? '<img src="'+esc(lineImage(li))+'" alt="">' : '')+'</td>' : '';
-    var start = '<td class="c">'+(i+1)+'</td><td>'+esc(li.name)+'</td>'+pic;
+    var pic = withPics ? '<td class="c pic">'+lineImages(li).map(function(u){ return '<img src="'+esc(u)+'" alt="">'; }).join("")+'</td>' : '';
+    /* The warehouse needs the colour on the delivery note; the client's papers show the base's name. */
+    var shown = li.name + (isNote && li.kind==="combo" && coverById(li.coverId) ? " · "+coverById(li.coverId).name : "");
+    var start = '<td class="c">'+(i+1)+'</td><td>'+esc(shown)+'</td>'+pic;
     if(isNote) return '<tr>'+start+'<td class="c">'+num(li.qty)+'</td><td class="c">'+num(li.deliveredQty)+'</td><td class="c">'+(lineLeft(li)||"—")+'</td></tr>';
     if(num(li.qty)===0) return '<tr class="opt">'+start+'<td class="c">optional</td><td class="c">'+docMoney(li.unitPrice)+'</td><td class="c">—</td></tr>';
     return '<tr>'+start+'<td class="c">'+num(li.qty)+(li.unit ? ' '+esc(li.unit) : '')+'</td>'+
@@ -2054,7 +2168,34 @@ function stockPill(kind, item){
   if(isLow(kind,item)) return inc>0 ? '<span class="pill info">Restocking</span>' : '<span class="pill warn">Reorder</span>';
   return '<span class="pill good">Healthy</span>';
 }
+function renderCoverTypes(){
+  var rows=state.coverTypes||[];
+  $("inv-ctypes").innerHTML = rows.length ? rows.map(function(ct){
+    var n=state.covers.filter(function(c){ return c.line===ct.code; }).length;
+    return '<tr class="'+(isManager()?"clickable":"")+'" data-ct="'+ct.id+'"><td class="mono strong">'+esc(ct.code)+'</td><td>'+esc(ct.name||"")+'</td>'+
+      '<td class="num">+'+usd(ct.addOnEndUser)+'</td><td class="num">+'+usd(ct.addOnDealer)+'</td><td class="num">'+n+'</td></tr>';
+  }).join("") : emptyRow(5,"No cover types yet — add Q, S… to offer a base by type.");
+  if(isManager()) $("inv-ctypes").querySelectorAll("[data-ct]").forEach(function(r){
+    r.addEventListener("click", function(){ editCoverType(byId(state.coverTypes, r.dataset.ct)); });
+  });
+}
+function editCoverType(ct){
+  var isNew=!ct, d=ct||{code:"", name:"", addOnEndUser:0, addOnDealer:0};
+  openForm((isNew?"Add":"Edit")+" cover type", [
+    {fields:[{id:"ct-code", label:"Type (as on the covers' line)", value:d.code, placeholder:"Q"},
+             {id:"ct-name", label:"Name (for the team)", value:d.name, placeholder:"Curved tempered glass"}]},
+    {fields:[{id:"ct-eu", label:"Added to the base for an end user ($)", type:"number", step:"0.01", min:0, value:num(d.addOnEndUser)},
+             {id:"ct-dl", label:"Added to the base for a dealer ($)", type:"number", step:"0.01", min:0, value:num(d.addOnDealer)}]},
+    {note:"Covers belong to a type through their Line (a cover on line Q is a Q cover). The client never sees the type: the offer shows the base's name and its price."}
+  ], function(){
+    var code=val("ct-code").toUpperCase();
+    if(!code){ toast("Give the type a short code, like Q", true); return false; }
+    save("cover_types", isNew?null:ct.id, {code:code, name:val("ct-name"), addOnEndUser:valNum("ct-eu"), addOnDealer:valNum("ct-dl")},
+      function(){ toast("Cover type saved"); });
+  }, isNew ? null : function(){ remove("cover_types", ct.id, ct.code); });
+}
 function renderInventory(){
+  renderCoverTypes();
   var units = sum(state.products,function(p){ return num(p.stockOnHand); })
             + sum(state.bases,function(b){ return num(b.stockOnHand); })
             + sum(state.covers,function(c){ return num(c.stockOnHand); });
@@ -2110,6 +2251,7 @@ function wireAddButtons(){
       if(k==="service") editService(null);
       if(k==="client") editClient(null);
       if(k==="tier") editTier(null);
+      if(k==="ctype") editCoverType(null);
       if(k==="expense") editExpense(null);
       if(k==="employee") editEmployee(null);
     });
@@ -2243,6 +2385,45 @@ function editStock(kind, item){
     if($("f-pic-rm")) $("f-pic-rm").addEventListener("click", function(){ picture=""; drawPicture(); });
   }
 
+  /* A base keeps up to four pictures for each cover type; they print side by side in the offer. */
+  var typePics=null;
+  if(kind==="base" && (state.coverTypes||[]).length){
+    typePics={};
+    (state.coverTypes||[]).forEach(function(ct){ typePics[ct.code]=((d.typeImages||{})[ct.code]||[]).slice(); });
+    groups.push({heading:"Pictures in the offer, for each cover type (up to 4)"});
+    groups.push({html:'<div id="f-tpics"></div><input type="file" id="f-tpic-file" accept="image/png,image/jpeg,image/webp" multiple hidden>'});
+  }
+  var picsChanged=false, picFor=null;
+  function drawTypePics(){
+    if(!typePics) return;
+    $("f-tpics").innerHTML=Object.keys(typePics).map(function(code){
+      var list=typePics[code];
+      return '<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px"><span class="mono strong" style="width:34px">'+esc(code)+'</span>'+
+        list.map(function(u, i){ return '<span class="brand-box" style="min-height:0"><img src="'+esc(u)+'" alt="" style="max-height:38px"><button class="btn quiet sm" type="button" data-tp-rm="'+esc(code)+'" data-i="'+i+'" aria-label="Remove">×</button></span>'; }).join("")+
+        (list.length<4 ? '<button class="btn sm" type="button" data-tp-add="'+esc(code)+'">Add picture</button>' : '')+'</div>';
+    }).join("");
+    $("f-tpics").querySelectorAll("[data-tp-add]").forEach(function(b){
+      b.addEventListener("click", function(){ picFor=b.dataset.tpAdd; $("f-tpic-file").value=""; $("f-tpic-file").click(); });
+    });
+    $("f-tpics").querySelectorAll("[data-tp-rm]").forEach(function(b){
+      b.addEventListener("click", function(){ typePics[b.dataset.tpRm].splice(Number(b.dataset.i),1); picsChanged=true; drawTypePics(); });
+    });
+  }
+  /* Pictures already saved are addresses; saving the list again needs the pictures themselves. */
+  function picsAsData(){
+    var jobs=[], out={};
+    Object.keys(typePics).forEach(function(code){
+      out[code]=[];
+      typePics[code].forEach(function(u, i){
+        if(String(u).indexOf("data:")===0){ out[code][i]=u; return; }
+        jobs.push(fetch(u, {credentials:"same-origin"}).then(function(r){ return r.blob(); }).then(function(b){
+          return new Promise(function(ok){ var fr=new FileReader(); fr.onload=function(){ out[code][i]=fr.result; ok(); }; fr.readAsDataURL(b); });
+        }));
+      });
+    });
+    return Promise.all(jobs).then(function(){ return out; });
+  }
+
   openForm((isNew?"Add ":"Edit ")+titleMap[kind], groups, function(){
     if(!val("f-name")){ toast("Give it a name first", true); return false; }
     var data={
@@ -2260,11 +2441,26 @@ function editStock(kind, item){
     }
     if(picture!==undefined) data.imageData = picture || null;
     var col = kind==="product" ? "products" : (kind==="base" ? "bases" : "covers");
+    if(typePics && picsChanged){
+      picsAsData().then(function(pics){ data.typeImages=pics; save(col, isNew?null:item.id, data, function(){ closeForm(); toast("Saved"); }); })
+        .catch(function(){ toast("Could not read the pictures — try again", true); });
+      return false;
+    }
     save(col, isNew?null:item.id, data, function(){ toast("Saved"); });
   }, isNew ? null : function(){
     remove(kind==="product" ? "products" : (kind==="base" ? "bases" : "covers"), item.id, item.name);
   });
   drawPicture();
+  if(typePics){
+    drawTypePics();
+    $("f-tpic-file").addEventListener("change", function(){
+      var files=[].slice.call(this.files||[]), code=picFor; if(!files.length || !code) return;
+      files=files.slice(0, 4-typePics[code].length);
+      Promise.all(files.map(function(f){ return shrinkPicture(f, 400); })).then(function(urls){
+        typePics[code]=typePics[code].concat(urls); picsChanged=true; drawTypePics();
+      }).catch(function(){ toast("Could not read that picture", true); });
+    });
+  }
   $("f-pic-file").addEventListener("change", function(){
     var f=this.files && this.files[0]; if(!f) return;
     shrinkPicture(f, 400).then(function(url){ picture=url; drawPicture(); })
@@ -2438,11 +2634,10 @@ function receiveOrder(){
 function toDeliverRows(){
   var rows=[];
   state.transactions.filter(function(t){ return t.status==="Invoiced"; }).forEach(function(t){
-    var plan=deliveryPlan(t), ready={};
-    plan.now.forEach(function(r){ ready[r.name]=(ready[r.name]||0)+r.qty; });
+    var plan=deliveryPlan(t);
     (t.lineItems||[]).forEach(function(li){
       var left=lineLeft(li); if(!left) return;
-      var r=Math.min(left, ready[li.name]||0); if(r) ready[li.name]-=r;
+      var r=sum(plan.now.filter(function(x){ return x.li===li; }), function(x){ return x.qty; });
       rows.push({t:t, li:li, left:left, ready:r});
     });
   });
@@ -2451,10 +2646,10 @@ function toDeliverRows(){
 function renderToDeliver(){
   var rows=toDeliverRows();
   $("deliver-body").innerHTML = rows.length ? rows.map(function(r){
-    var st = r.ready>=r.left ? '<span class="pill good">Ready</span>'
+    var st = needsColour(r.li) ? '<span class="pill warn">Choose colours</span>' : r.ready>=r.left ? '<span class="pill good">Ready</span>'
       : (r.ready>0 ? '<span class="pill warn">'+r.ready+' ready</span>' : '<span class="pill bad">Waiting for stock</span>');
     return '<tr class="clickable" data-dt="'+r.t.id+'"><td class="mono">'+esc(r.t.refNo)+'<div class="tiny faint">'+fmtDate(r.t.invoiceDate)+'</div></td>'+
-      '<td class="strong">'+esc(r.t.clientName||"")+'</td><td>'+esc(r.li.name)+'</td>'+
+      '<td class="strong">'+esc(r.t.clientName||"")+'</td><td>'+esc(r.li.name)+(r.li.kind==="combo" ? '<div class="tiny faint">'+esc(comboDetail(r.li))+'</div>' : '')+'</td>'+
       '<td class="num">'+num(r.li.qty)+'</td><td class="num">'+num(r.li.deliveredQty)+'</td><td class="num strong">'+r.left+'</td><td>'+st+'</td></tr>';
   }).join("") : emptyRow(7,"Everything invoiced has been delivered.");
   $("deliver-body").querySelectorAll("[data-dt]").forEach(function(r){

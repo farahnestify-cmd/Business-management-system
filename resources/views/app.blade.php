@@ -155,6 +155,16 @@
           </div>
           <div class="section" style="margin-top:26px">
             <div class="section-head">
+              <div><h2>Cover types</h2><p class="sub">An offer names the base and a cover type (Q, S…), priced as the base plus the type's add-on. The colours are chosen once the client agrees.</p></div>
+              <button class="btn sm" type="button" data-add="ctype" data-need="manager">Add cover type</button>
+            </div>
+            <div class="panel"><div class="table-wrap"><table>
+              <thead><tr><th>Type</th><th>Name</th><th class="num">Adds for an end user</th><th class="num">Adds for a dealer</th><th class="num">Covers</th></tr></thead>
+              <tbody id="inv-ctypes"></tbody>
+            </table></div></div>
+          </div>
+          <div class="section" style="margin-top:26px">
+            <div class="section-head">
               <div><h2>Covers</h2><p class="sub">Colour and finish faceplates, counted separately from the bases they clip onto.</p></div>
               <button class="btn sm" type="button" data-add="cover" data-need="manager">Add cover</button>
             </div>

@@ -25,6 +25,7 @@ Route::middleware('auth')->group(function () {
     Route::prefix('api')->group(function () {
         Route::get('bootstrap', BootstrapController::class);
         Route::get('brand/{which}', [SettingsController::class, 'image'])->whereIn('which', ['logo', 'hero']);
+        Route::get('images/base/{id}/type/{code}/{i}', [RecordController::class, 'typeImage'])->whereNumber('id')->whereNumber('i');
         Route::get('images/{kind}/{id}', [RecordController::class, 'image'])->whereIn('kind', ['product', 'base', 'cover'])->whereNumber('id');
 
         Route::post('transactions', [SalesController::class, 'store']);
@@ -34,6 +35,7 @@ Route::middleware('auth')->group(function () {
         Route::post('transactions/{transaction}/deliver', [SalesController::class, 'deliver']);
         Route::post('transactions/{transaction}/returns', [SalesController::class, 'returnItem']);
         Route::post('transactions/{transaction}/extra', [SalesController::class, 'deliverExtra']);
+        Route::post('transactions/{transaction}/colours', [SalesController::class, 'chooseColours']);
         Route::post('transactions/{transaction}/milestones/{milestone}/pay', [SalesController::class, 'payMilestone']);
         Route::post('transactions/{transaction}/refunds', [SalesController::class, 'refund']);
         Route::post('transactions/{transaction}/revise', [SalesController::class, 'revise']);
@@ -72,7 +74,7 @@ Route::middleware('auth')->group(function () {
             Route::delete('users/{user}', [AccountController::class, 'destroy']);
         });
 
-        $records = ['clients', 'products', 'bases', 'covers', 'suppliers', 'employees', 'services', 'price_tiers', 'currencies'];
+        $records = ['clients', 'products', 'bases', 'covers', 'suppliers', 'employees', 'services', 'price_tiers', 'currencies', 'cover_types'];
         Route::post('{collection}', [RecordController::class, 'store'])->whereIn('collection', $records);
         Route::put('{collection}/{id}', [RecordController::class, 'update'])->whereIn('collection', $records)->whereNumber('id');
         Route::delete('{collection}/{id}', [RecordController::class, 'destroy'])->whereIn('collection', $records)->whereNumber('id');

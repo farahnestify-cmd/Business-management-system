@@ -20,6 +20,12 @@ class TransactionItem extends Model
         return max(0, $this->qty - (int) $this->delivered_qty);
     }
 
+    /** A base sold with a cover type waits for its colour before it can go out. */
+    public function needsColour(): bool
+    {
+        return $this->kind === 'combo' && ! $this->cover_id;
+    }
+
     public function toApi(): array
     {
         $row = [
@@ -38,6 +44,7 @@ class TransactionItem extends Model
         } elseif ($this->kind === 'combo') {
             $row['baseId'] = self::sid($this->base_id);
             $row['coverId'] = self::sid($this->cover_id);
+            $row['coverType'] = (string) $this->cover_type;
         } else {
             $row['productId'] = self::sid($this->product_id);
         }

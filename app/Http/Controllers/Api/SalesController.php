@@ -7,6 +7,7 @@ use App\Models\Base;
 use App\Models\Client;
 use App\Models\CompanySetting;
 use App\Models\Cover;
+use App\Models\CoverType;
 use App\Models\Currency;
 use App\Models\Delivery;
 use App\Models\Milestone;
@@ -384,6 +385,11 @@ class SalesController extends Controller
                 if ($left === 0) {
                     continue;
                 }
+                if ($li->needsColour()) {
+                    $waiting[] = ['name' => $li->name.' (choose the cover colours first)', 'qty' => $left];
+
+                    continue;
+                }
                 $parts = $li->kind === 'combo'
                     ? [$load(Base::class, $li->base_id), $load(Cover::class, $li->cover_id)]
                     : [$load(Product::class, $li->product_id)];
@@ -515,6 +521,9 @@ class SalesController extends Controller
             $waiting = 0;
 
             foreach ($rows as $row) {
+                if ($row['kind'] === 'combo' && empty($row['coverId'])) {
+                    throw ValidationException::withMessages(['items' => 'Choose the cover colour of each base that goes out.']);
+                }
                 [$item] = $this->buildItems([$row + ['standardPrice' => $row['unitPrice']]]);
                 // The same item at the same price joins the row already on the deal instead of a second row.
                 $li = $tx->items()->lockForUpdate()->get()->first(fn ($x) => $x->kind === $item['kind']
@@ -547,6 +556,53 @@ class SalesController extends Controller
             $this->settleDeliveryStage($tx->fresh('items'));
 
             return response()->json(['ok' => true, 'delivered' => $delivered, 'waiting' => $waiting]);
+        });
+    }
+
+    /**
+     * Once the client agrees: each base line sold with a cover type gets its colours,
+     * split into one line per colour (same price), so stock is reserved and delivered
+     * per colour. A line's colours must add up to its quantity.
+     */
+    public function chooseColours(Request $request, Transaction $transaction)
+    {
+        $data = $request->validate([
+            'lines' => 'required|array|min:1|max:100',
+            'lines.*.lineId' => 'required|integer',
+            'lines.*.covers' => 'required|array|min:1|max:30',
+            'lines.*.covers.*.coverId' => 'required|integer',
+            'lines.*.covers.*.qty' => 'required|integer|min:1',
+        ]);
+
+        return DB::transaction(function () use ($transaction, $data) {
+            $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
+            if (! in_array($tx->status, ['Agreement', 'Invoiced'], true)) {
+                return response()->json(['message' => 'Cover colours are chosen once the client has agreed.'], 409);
+            }
+            foreach ($data['lines'] as $i => $row) {
+                $li = $tx->items()->lockForUpdate()->find($row['lineId']);
+                if (! $li || ! $li->needsColour() || $li->delivered_qty > 0) {
+                    throw ValidationException::withMessages(["lines.$i" => 'That line already has its colours.']);
+                }
+                $total = array_sum(array_column($row['covers'], 'qty'));
+                if ($total !== (int) $li->qty) {
+                    throw ValidationException::withMessages(["lines.$i" => 'The colours for '.$li->name.' add up to '.$total.', not '.$li->qty.'.']);
+                }
+                $base = Base::find($li->base_id);
+                foreach (array_values($row['covers']) as $k => $c) {
+                    $cover = Cover::find($c['coverId']);
+                    if (! $cover || ($li->cover_type && $cover->line && $cover->line !== $li->cover_type)) {
+                        throw ValidationException::withMessages(["lines.$i" => 'Choose '.($li->cover_type ?: '').' covers for '.$li->name.'.']);
+                    }
+                    $target = $k === 0 ? $li : $li->replicate();
+                    $target->cover_id = $cover->id;
+                    $target->qty = $c['qty'];
+                    $target->cost_snapshot = (float) ($base?->cost ?? 0) + (float) $cover->cost;
+                    $target->save();
+                }
+            }
+
+            return response()->json(['ok' => true]);
         });
     }
 
@@ -650,6 +706,7 @@ class SalesController extends Controller
             'lines.*.productId' => 'nullable|integer',
             'lines.*.baseId' => 'nullable|integer',
             'lines.*.coverId' => 'nullable|integer',
+            'lines.*.coverType' => 'nullable|string|max:20',
             // A row at 0 prints as an option the client could add; at least one row needs a quantity.
             'lines.*.qty' => 'required|integer|min:0',
             'setId' => 'nullable|integer|exists:offer_sets,id',
@@ -684,15 +741,25 @@ class SalesController extends Controller
                 continue;
             }
             if ($line['kind'] === 'combo') {
+                // A base is sold with a cover type (Q, S…); the colour may already be known or chosen later.
                 $base = Base::find($line['baseId'] ?? 0);
-                $cover = Cover::find($line['coverId'] ?? 0);
-                if (! $base || ! $cover) {
-                    throw ValidationException::withMessages(["lines.$i" => 'Choose a base and a cover for every line.']);
+                $cover = ! empty($line['coverId']) ? Cover::find($line['coverId']) : null;
+                $type = ($line['coverType'] ?? null) ?: $cover?->line;
+                if (! $base || (! $cover && ! $type)) {
+                    throw ValidationException::withMessages(["lines.$i" => 'Choose a base and its cover type for every line.']);
+                }
+                if ($cover && $type && $cover->line && $cover->line !== $type) {
+                    throw ValidationException::withMessages(["lines.$i" => $cover->name.' is not a '.$type.' cover.']);
+                }
+                if (! $cover && ! CoverType::where('code', $type)->exists()) {
+                    throw ValidationException::withMessages(["lines.$i" => 'Cover type '.$type.' is not in the list.']);
                 }
                 $row = [
-                    'kind' => 'combo', 'base_id' => $base->id, 'cover_id' => $cover->id, 'product_id' => null,
-                    'name' => $base->name.' · '.$cover->name,
-                    'cost_snapshot' => (float) $base->cost + (float) $cover->cost,
+                    'kind' => 'combo', 'base_id' => $base->id, 'cover_id' => $cover?->id, 'cover_type' => $type, 'product_id' => null,
+                    // The client sees the base's name; the colour is the warehouse's business.
+                    'name' => $base->name,
+                    // Until the colour is chosen, the cover's cost is the average of that type's covers.
+                    'cost_snapshot' => (float) $base->cost + (float) ($cover ? $cover->cost : (Cover::where('line', $type)->avg('cost') ?? 0)),
                 ];
             } else {
                 $product = Product::find($line['productId'] ?? 0);

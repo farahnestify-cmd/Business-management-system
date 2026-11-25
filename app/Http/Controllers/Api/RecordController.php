@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Base;
 use App\Models\Client;
 use App\Models\Cover;
+use App\Models\CoverType;
 use App\Models\Currency;
 use App\Models\Employee;
 use App\Models\PriceTier;
@@ -65,6 +66,7 @@ class RecordController extends Controller
             ] + self::PRICE_BOOK + self::STOCK],
             'bases' => [Base::class, 'manager', $name + [
                 'imageData' => ['image_data', 'nullable|string|max:3000000'],
+                'typeImages' => ['type_images', 'nullable|array|max:20'],
                 'line' => ['line', 'nullable|string|max:40'],
             ] + self::PRICE_BOOK + self::STOCK],
             'covers' => [Cover::class, 'manager', $name + [
@@ -86,6 +88,12 @@ class RecordController extends Controller
                 'symbol' => ['symbol', 'nullable|string|max:8'],
                 'rate' => ['rate', 'required|numeric|gt:0'],
                 'active' => ['active', 'boolean'],
+            ]],
+            'cover_types' => [CoverType::class, 'manager', [
+                'code' => ['code', 'required|string|max:20'],
+                'name' => ['name', 'nullable|string|max:255'],
+                'addOnEndUser' => ['add_on_end_user', 'numeric|min:0'],
+                'addOnDealer' => ['add_on_dealer', 'numeric|min:0'],
             ]],
             'price_tiers' => [PriceTier::class, 'manager', $name + [
                 'code' => ['code', 'nullable|string|max:20'],
@@ -109,6 +117,12 @@ class RecordController extends Controller
         };
     }
 
+    /** One of a base's pictures for a cover type. */
+    public function typeImage(int $id, string $code, int $i)
+    {
+        return Base::findOrFail($id)->typeImageResponse($code, $i);
+    }
+
     /** A stock item's picture, for the Image column of printed offers. */
     public function image(string $kind, int $id)
     {
@@ -123,6 +137,9 @@ class RecordController extends Controller
         if ($collection === 'currencies') {
             $this->uniqueCode($model);
         }
+        if ($collection === 'cover_types') {
+            $this->uniqueType($model);
+        }
         $this->checkImage($model);
         $model->save();
 
@@ -136,6 +153,9 @@ class RecordController extends Controller
         $this->fill($model, $request, $fields, false);
         if ($collection === 'currencies') {
             $this->uniqueCode($model);
+        }
+        if ($collection === 'cover_types') {
+            $this->uniqueType($model);
         }
         $this->checkImage($model);
         $model->save();
@@ -157,18 +177,45 @@ class RecordController extends Controller
         }
 
         $kind = ['clients' => 'client', 'products' => 'product', 'bases' => 'base', 'covers' => 'cover',
-            'suppliers' => 'supplier', 'employees' => 'employee', 'services' => 'service', 'price_tiers' => 'price_tier', 'currencies' => 'currency'][$collection];
-        DB::transaction(fn () => RecycleBin::trash($kind, $model, $model->name));
+            'suppliers' => 'supplier', 'employees' => 'employee', 'services' => 'service', 'price_tiers' => 'price_tier', 'currencies' => 'currency', 'cover_types' => 'cover_type'][$collection];
+        DB::transaction(fn () => RecycleBin::trash($kind, $model, $model->name ?: $model->code));
 
         return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
     }
 
-    /** Only a PNG, JPG or WebP data URL is kept as an item's picture. */
+    /** Only PNG, JPG or WebP data URLs are kept as pictures: one per item, up to four per cover type on a base. */
     private function checkImage(Model $model): void
     {
+        $ok = fn ($d) => is_string($d) && strlen($d) <= 3000000 && preg_match('#^data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$#', $d);
         $data = $model->getAttribute('image_data');
-        if ($data && ! preg_match('#^data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$#', $data)) {
+        if ($data && ! $ok($data)) {
             throw ValidationException::withMessages(['imageData' => 'Choose a PNG, JPG or WebP picture.']);
+        }
+        if ($model instanceof Base && $model->type_images) {
+            $clean = [];
+            foreach ((array) $model->type_images as $code => $list) {
+                $list = array_values(array_filter((array) $list));
+                if (count($list) > 4) {
+                    throw ValidationException::withMessages(['typeImages' => 'Up to four pictures for each cover type.']);
+                }
+                foreach ($list as $d) {
+                    if (! $ok($d)) {
+                        throw ValidationException::withMessages(['typeImages' => 'Choose PNG, JPG or WebP pictures.']);
+                    }
+                }
+                if ($list) {
+                    $clean[(string) $code] = $list;
+                }
+            }
+            $model->type_images = $clean ?: null;
+        }
+    }
+
+    private function uniqueType(Model $type): void
+    {
+        $type->code = strtoupper(trim($type->code));
+        if (CoverType::where('code', $type->code)->where('id', '!=', $type->id ?? 0)->exists()) {
+            throw ValidationException::withMessages(['code' => 'Cover type '.$type->code.' is already in the list.']);
         }
     }
 

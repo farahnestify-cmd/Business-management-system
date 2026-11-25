@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Base;
 use App\Models\Client;
 use App\Models\Cover;
+use App\Models\CoverType;
 use App\Models\Currency;
 use App\Models\DeletedRecord;
 use App\Models\Employee;
@@ -41,6 +42,7 @@ class RecycleBin
         'service' => [Service::class, 'Service'],
         'offer_set' => [OfferSet::class, 'Offer set'],
         'price_tier' => [PriceTier::class, 'Price tier'],
+        'cover_type' => [CoverType::class, 'Cover type'],
         'currency' => [Currency::class, 'Currency'],
         'employee' => [Employee::class, 'Person'],
         'expense' => [Expense::class, 'Expense'],
