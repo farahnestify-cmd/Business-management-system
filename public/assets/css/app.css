@@ -459,3 +459,7 @@ html:not([data-role="owner"]) .c-cost{display:none!important}
 @media (max-width:720px){ .mrow-r,.mrow-x{grid-template-columns:1fr 1fr} .mrow-head{display:none} }
 #rep-figs{grid-template-columns:repeat(5,1fr)}
 @media (max-width:1000px){ #rep-figs{grid-template-columns:repeat(2,1fr)} }
+/* Notification bell */
+#bell{position:relative; padding:6px 8px; margin-right:6px}
+#bell svg{width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.5}
+.bell-count{position:absolute; top:-2px; right:-2px; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:#C0392B; color:#fff; font-size:10.5px; font-weight:700; line-height:18px; text-align:center}

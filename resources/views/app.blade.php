@@ -59,6 +59,10 @@
         <svg viewBox="0 0 20 20"><circle cx="9" cy="9" r="5.5"/><path d="M13.2 13.2L17 17"/></svg>
         <input id="search" type="text" placeholder="Search anything  ⌘K" autocomplete="off">
       </div>
+      <button class="btn quiet bell" id="bell" type="button" aria-label="Notifications" title="Notifications">
+        <svg viewBox="0 0 20 20"><path d="M5 14V9a5 5 0 0110 0v5l1.5 1.5h-13z"/><path d="M8.3 17.5a1.8 1.8 0 003.4 0"/></svg>
+        <span class="bell-count" id="bell-count" hidden></span>
+      </button>
       <button class="btn primary" id="primary-action" type="button">New offer</button>
     </header>
 

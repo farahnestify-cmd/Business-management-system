@@ -728,6 +728,7 @@ function render(){
   if(state.view==="money") renderMoney();
   if(state.view==="team") renderTeam();
   if(state.view==="reports") renderReports();
+  renderBell();
   if(state.view==="settings"){ renderSettings(); renderAccounts(); renderData(); }
   if(!$("composer").hidden) renderComposer();
 }
@@ -3029,6 +3030,95 @@ $("data-file").addEventListener("change", function(){
     .then(function(j){ return reload().then(function(){ toast("Restored: "+j.deals+" deals and "+j.contacts+" contacts"+(j.from ? " from "+fmtDate(j.from.slice(0,10)) : "")); }); })
     .catch(function(e){ toast(e.message, true); });
 });
+
+/* ============================================================
+   NOTIFICATIONS: stock that ran low or out, payments that fell due
+   ============================================================ */
+function alertsNow(){
+  var out=[], today=todayISO();
+  allStockRows().forEach(function(r){
+    if(!isLow(r.kind, r.item)) return;
+    var a=availableOf(r.kind, r.item), gone=a<=0;
+    out.push({key:"stock:"+r.kind+":"+r.item.id+":"+(gone?"out":"low"), sev:gone?"bad":"warn",
+      title: gone ? r.label+" has run out" : r.label+" is down to "+a,
+      detail: (gone && a<0 ? (-a)+" more promised than in stock · " : "")+"Reorder point is "+num(r.item.reorderThreshold)+
+        (incomingFor(r.kind, r.item.id)>0 ? " · "+incomingFor(r.kind, r.item.id)+" on the way" : ""),
+      go:function(){ setView("inventory"); openStockItem(r.kind, r.item); }});
+  });
+  /* Money is for the owner and admins. */
+  if(isManager()) state.transactions.forEach(function(t){
+    if(!isLive(t) || t.status==="Quotation" || isSuperseded(t)) return;
+    var ms=t.milestones||[];
+    var push=function(key, due, label, amount){
+      var late=daysSince(due);
+      out.push({key:key, sev: late>0 ? "bad" : "warn",
+        title:(late>0 ? "Payment overdue: " : "Payment due today: ")+(t.clientName||"")+" — "+label,
+        detail:t.refNo+" · "+inCur(t, amount)+(late>0 ? " · "+late+" day"+(late>1?"s":"")+" late" : " · due "+fmtDate(due)),
+        go:function(){ setView("sales"); openTx(t.id); }});
+    };
+    ms.forEach(function(m){ if(!m.paid && m.dueDate && m.dueDate<=today) push("pay:"+t.id+":"+m.id, m.dueDate, m.label||"payment stage", m.amount); });
+    if(!ms.length && t.dueDate && t.dueDate<=today && txBalance(t)>0.004) push("due:"+t.id+":"+t.dueDate, t.dueDate, "balance", txBalance(t));
+  });
+  return sortBy(out, function(a){ return (a.sev==="bad"?"0":"1")+a.title; });
+}
+function renderBell(){
+  if(!state.ready) return;
+  var list=alertsNow();
+  $("bell-count").hidden=!list.length; $("bell-count").textContent=list.length>99 ? "99+" : String(list.length);
+  desktopAlerts(list);
+}
+function desktopKey(){ return "nestify.alerts."+(state.user ? state.user.id : "anon"); }
+function desktopOn(){ try{ return window.Notification && Notification.permission==="granted" && localStorage.getItem(desktopKey()+".on")==="1"; }catch(e){ return false; } }
+/* Each alert pops up on the desktop once. One that clears and comes back later pops up again. */
+function desktopAlerts(list){
+  if(!desktopOn()) return;
+  var seen=null; try{ seen=JSON.parse(localStorage.getItem(desktopKey())||"null"); }catch(e){}
+  var now={}; list.forEach(function(a){ now[a.key]=1; });
+  var fresh=seen ? list.filter(function(a){ return !seen[a.key]; }) : [];
+  if(!seen && list.length) show("nestify — "+list.length+" thing"+(list.length>1?"s":"")+" need your attention", list.slice(0,3).map(function(a){ return a.title; }).join("\n"), null);
+  fresh.slice(0,5).forEach(function(a){ show(a.title, a.detail, a.go, a.key); });
+  if(fresh.length>5) show("nestify — "+(fresh.length-5)+" more alerts", "Open the bell to see them all", null);
+  try{ localStorage.setItem(desktopKey(), JSON.stringify(now)); }catch(e){}
+  function show(title, body, go, tag){
+    try{
+      var n=new Notification(title, {body:body, tag:tag||undefined, icon:(state.settings && state.settings.logo) || undefined});
+      n.onclick=function(){ window.focus(); if(go) go(); else openAlerts(); n.close(); };
+    }catch(e){}
+  }
+}
+function openAlerts(){
+  var list=alertsNow();
+  var supported=!!window.Notification, on=desktopOn(), blocked=supported && Notification.permission==="denied";
+  var html=
+    '<div class="panel" style="padding:12px 14px; display:flex; gap:12px; align-items:center; justify-content:space-between">'+
+      '<div class="tiny">'+(!supported ? "This browser cannot show desktop notifications." :
+        (blocked ? "Desktop notifications are blocked for this site. Allow them from the lock icon next to the address, then come back here." :
+        (on ? "Desktop notifications are on: each new alert pops up on this computer while the system is open in a tab." :
+              "Turn on desktop notifications to get a pop-up for each new alert while the system is open in a tab.")))+'</div>'+
+      (supported && !blocked ? '<button class="btn sm'+(on?"":" primary")+'" type="button" id="al-toggle" style="white-space:nowrap">'+(on?"Turn off":"Turn on")+'</button>' : '')+
+    '</div>'+
+    '<div class="panel"><div class="table-wrap"><table><tbody>'+
+      (list.length ? list.map(function(a, i){
+        return '<tr class="clickable" data-al="'+i+'"><td style="width:1%"><span class="pill '+a.sev+'">'+(a.key.indexOf("stock")===0?"Stock":"Payment")+'</span></td>'+
+          '<td><div class="strong">'+esc(a.title)+'</div><div class="tiny muted">'+esc(a.detail)+'</div></td></tr>';
+      }).join("") : emptyRow(2, "All clear — nothing needs you right now."))+
+    '</tbody></table></div></div>';
+  openDrawer("Notifications"+(list.length ? " · "+list.length : ""), html);
+  $("drawer-body").querySelectorAll("[data-al]").forEach(function(r){
+    r.addEventListener("click", function(){ closeDrawer(); list[Number(r.dataset.al)].go(); });
+  });
+  if($("al-toggle")) $("al-toggle").addEventListener("click", function(){
+    if(on){ try{ localStorage.setItem(desktopKey()+".on","0"); }catch(e){} openAlerts(); return; }
+    Notification.requestPermission().then(function(p){
+      if(p==="granted"){
+        try{ localStorage.setItem(desktopKey()+".on","1"); localStorage.removeItem(desktopKey()); }catch(e){}
+        toast("Desktop notifications are on"); renderBell();
+      } else toast("The browser did not allow notifications", true);
+      openAlerts();
+    });
+  });
+}
+$("bell").addEventListener("click", openAlerts);
 
 /* ============================================================
    MONTHLY REPORT
