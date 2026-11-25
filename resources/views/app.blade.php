@@ -512,7 +512,9 @@
         <div class="field" id="of-method-wrap"><label for="of-method">Method</label><select id="of-method"><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select></div>
         <div class="field"><label for="of-due">Balance due by</label><input id="of-due" type="date" class="mono"></div>
       </div>
-      <div class="grid g2">
+      <div class="grid g3">
+        <div class="field"><label for="of-disc">Discount on the total (%)</label><input id="of-disc" type="number" step="0.1" min="0" max="95" class="mono" value="0">
+          <div class="tiny faint" id="of-disc-note"></div></div>
         <div class="field"><label for="of-site">Site or project</label><input id="of-site" type="text" placeholder="Villa 12, Rawabi"></div>
         <div class="field"><label for="of-seller">Sold by</label><input id="of-seller" type="text" list="seller-list" placeholder="Who is handling this" autocomplete="off"><datalist id="seller-list"></datalist></div>
       </div>

@@ -60,9 +60,15 @@ class Transaction extends Model
         return (float) $this->items->sum(fn ($li) => $li->qty * $li->unit_price);
     }
 
+    /** The discount on the total: it applies to goods, not to labour. */
+    public function discountAmount(): float
+    {
+        return (float) $this->items->where('kind', '!=', 'service')->sum(fn ($li) => $li->qty * $li->unit_price) * (float) $this->discount_pct;
+    }
+
     public function total(): float
     {
-        return $this->subtotal() * (1 + $this->vat_pct / 100);
+        return ($this->subtotal() - $this->discountAmount()) * (1 + $this->vat_pct / 100);
     }
 
     public function paid(): float
@@ -89,6 +95,7 @@ class Transaction extends Model
             'serviceType' => $this->service_type,
             'status' => $this->status,
             'vatPct' => (float) $this->vat_pct,
+            'discountPct' => (float) $this->discount_pct,
             'currency' => $this->currency ?: 'USD',
             'fxRate' => (float) ($this->fx_rate ?: 1),
             'lineItems' => $this->items->map(fn ($li) => $li->toApi())->values()->all(),

@@ -177,8 +177,15 @@ function lineReady(line){
    5. TRANSACTION MATHS
    ============================================================ */
 function txSubtotal(tx){ return sum(tx.lineItems||[], function(li){ return num(li.qty)*num(li.unitPrice); }); }
-function txVat(tx){ return txSubtotal(tx) * (num(tx.vatPct)/100); }
-function txTotal(tx){ return txSubtotal(tx) + txVat(tx); }
+/* The discount on the total applies to goods; labour keeps its rate. */
+function txDiscount(tx){
+  return sum((tx.lineItems||[]).filter(function(li){ return li.kind!=="service"; }), function(li){ return num(li.qty)*num(li.unitPrice); }) * num(tx.discountPct);
+}
+function txNet(tx){ return txSubtotal(tx) - txDiscount(tx); }
+function txVat(tx){ return txNet(tx) * (num(tx.vatPct)/100); }
+function txTotal(tx){ return txNet(tx) + txVat(tx); }
+/* What one unit of a line really sells for, after the discount on the total. */
+function netUnit(tx, li){ return num(li.unitPrice) * (li.kind==="service" ? 1 : 1-num(tx.discountPct)); }
 function normalizedPayments(tx){
   if(tx.payments && tx.payments.length) return tx.payments.slice();
   var out=[];
@@ -194,7 +201,7 @@ function txCOGS(tx){
     return num(li.qty) * unit;
   });
 }
-function txSubtotalBase(tx){ return toBase(tx, txSubtotal(tx)); }
+function txSubtotalBase(tx){ return toBase(tx, txNet(tx)); }
 /* Cost of goods is in dollars, so the margin is too. */
 function txMargin(tx){ return txSubtotalBase(tx) - txCOGS(tx); }
 function txHasCost(tx){ return txCOGS(tx) > 0; }
@@ -954,7 +961,7 @@ function openTxIn(id){
   var next={Quotation:["Agreement","Cancelled"], Agreement:["Invoiced","Cancelled"], Invoiced:["Delivered","Cancelled"], Delivered:[], Cancelled:[]}[t.status]||[];
   var lines=(t.lineItems||[]).map(function(li){
     var unitCost = li.costSnapshot!=null ? num(li.costSnapshot) : lineCost(li);
-    var lineMargin = num(li.qty)*(toBase(t,li.unitPrice)-unitCost);
+    var lineMargin = num(li.qty)*(toBase(t,netUnit(t,li))-unitCost);
     var left=lineLeft(li);
     return '<tr><td>'+esc(li.name)+(li.kind==="service" ? '<div class="tiny faint">labour · no stock</div>' : '')+'</td><td class="num">'+num(li.qty)+(li.unit ? ' <span class="tiny faint">'+esc(li.unit)+'</span>' : '')+'</td>'+
       (showDelivered ? '<td class="num">'+(li.kind==="service" ? '<span class="faint">—</span>' : (left>0 ? '<span style="color:var(--warn)">'+num(li.deliveredQty)+'</span>' : num(li.deliveredQty)))+'</td>' : '')+
@@ -980,6 +987,8 @@ function openTxIn(id){
       '<tbody>'+(lines||emptyRow(5,"No items"))+'</tbody></table></div></div>'+
     '<div class="totals">'+
       '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(txSubtotal(t))+'</span></div>'+
+      (txDiscount(t)>0.004 ? '<div class="r"><span class="l">Discount '+r2(num(t.discountPct)*100)+'%</span><span class="mono">−'+money(txDiscount(t))+'</span></div>'+
+        '<div class="r"><span class="l">After discount</span><span class="mono">'+money(txNet(t))+'</span></div>' : '')+
       (num(t.vatPct)>0 ? '<div class="r"><span class="l">VAT '+num(t.vatPct)+'%</span><span class="mono">'+money(txVat(t))+'</span></div>' : '')+
       '<div class="r"><span class="l">Paid</span><span class="mono">'+money(txPaid(t))+'</span></div>'+
       (txHasCost(t) ? '<div class="r c-cost"><span class="l">Margin</span><span class="mono">'+usd(txMargin(t))+' · '+pct(txMargin(t)/(txSubtotalBase(t)||1),0)+'</span></div>' : '')+
@@ -1126,6 +1135,7 @@ function openComposer(tx, mode){
   $("of-notes").value = src ? (src.notes||"") : "";
   $("of-site").value = src ? (src.site||"") : "";
   $("of-table-title").value = src ? (src.tableTitle||"") : "";
+  $("of-disc").value = src ? r2(num(src.discountPct)*100) : 0; $("of-disc-note").textContent="";
   /* New offers are stamped with whoever writes them; anyone can be named instead. */
   $("of-seller").value = src ? (src.soldBy||"") : (state.user ? state.user.name : "");
   var names={};
@@ -1174,7 +1184,7 @@ function saveDraft(){
     window.localStorage.setItem(draftKey(), JSON.stringify({savedAt:new Date().toISOString(),
       offer:{mode:state.offer.mode, reviseOf:state.offer.reviseOf, setId:state.offer.setId||"", lines:state.offer.lines, milestones:state.offer.milestones||[],
         paidStages:state.offer.paidStages||[], ref:state.offer.ref||"", currency:state.offer.currency||"USD", fxRate:state.offer.fxRate||1},
-      fields:{client:val("of-client"), region:val("of-region"), date:val("of-date"), site:val("of-site"), tableTitle:val("of-table-title"), seller:val("of-seller"),
+      fields:{client:val("of-client"), region:val("of-region"), date:val("of-date"), site:val("of-site"), tableTitle:val("of-table-title"), disc:val("of-disc"), seller:val("of-seller"),
         paid:val("of-paid"), method:val("of-method"), due:val("of-due"), notes:val("of-notes"), type:radioVal("oftype"), service:radioVal("ofservice")}}));
   }catch(e){}
 }
@@ -1194,7 +1204,7 @@ function restoreDraft(d){
     currency:o.currency||"USD", fxRate:num(o.fxRate)||1};
   fillCurrencySelect();
   $("of-client").value=f.client||""; $("of-region").value=f.region||"West Bank"; $("of-date").value=f.date||todayISO();
-  $("of-site").value=f.site||""; $("of-table-title").value=f.tableTitle||""; $("of-seller").value=f.seller||""; $("of-paid").value=f.paid||0; $("of-method").value=f.method||"Cash";
+  $("of-site").value=f.site||""; $("of-table-title").value=f.tableTitle||""; $("of-disc").value=f.disc||0; $("of-seller").value=f.seller||""; $("of-paid").value=f.paid||0; $("of-method").value=f.method||"Cash";
   $("of-due").value=f.due||""; $("of-notes").value=f.notes||"";
   setRadio("oftype", f.type||"Direct"); setRadio("ofservice", f.service||"With Programming");
   $("of-paid-wrap").hidden = $("of-method-wrap").hidden = asRevision;
@@ -1293,6 +1303,7 @@ $("of-add").addEventListener("click", function(){
   if(id==="of-client"){
     var c=clientById($("of-client").value);
     if(c && c.region) $("of-region").value=c.region;
+    applyClientDiscount();
   }
   renderComposer();
 }); });
@@ -1312,10 +1323,9 @@ function offerCtx(){
     currency: (state.offer && state.offer.currency) || "USD", rate: (state.offer && num(state.offer.fxRate)) || 1
   };
   /* A tier decides the price column; its discount stacks with the contact's own extra discount. */
-  if(ctx.tier){
-    ctx.clientType = ctx.tier.basis==="Dealer" ? "Dealer" : "End User";
-    ctx.discount = 1-(1-num(ctx.tier.discountPct))*(1-ctx.discount);
-  }
+  if(ctx.tier) ctx.clientType = ctx.tier.basis==="Dealer" ? "Dealer" : "End User";
+  /* Lines are priced from the book; the discount is taken off the total and printed under it. */
+  ctx.discount = Math.min(0.95, Math.max(0, valNum("of-disc")/100));
   return ctx;
 }
 /* ---------- Quoting in another currency ---------- */
@@ -1383,11 +1393,11 @@ function renderComposerIn(){
 
   $("of-lines").innerHTML = state.offer.lines.map(function(ln,i){
     /* The client's standing discount applies to the price book, not to labour rates. */
-    var std=offerStandard(ln,ctx), suggested = ln.kind==="service" ? std : std*(1-ctx.discount);
+    var std=offerStandard(ln,ctx), suggested = std;
     if(!ln.touched) ln.unitPrice=Math.round(suggested*100)/100;
     var cost=lineCost(ln), lineTotal=num(ln.qty)*num(ln.unitPrice);
     var off=num(ln.unitPrice)-suggested;
-    var unitBase=num(ln.unitPrice)/ctx.rate;
+    var unitBase=num(ln.unitPrice)*(ln.kind==="service" ? 1 : 1-ctx.discount)/ctx.rate;
     var marginTxt = costsVisible() ? (cost>0 ? pct((unitBase-cost)/(unitBase||1),0) : "—") : "";
     var flagged = Math.abs(off)/ctx.rate > num(state.settings.varianceFlag);
     var itemVal = ln.kind==="service" ? (ln.serviceId ? "s:"+ln.serviceId : "s:custom")
@@ -1460,13 +1470,16 @@ function renderComposerIn(){
   });
 
   var done=state.offer.lines.filter(lineReady);
-  var subtotal=sum(done,function(l){ return num(l.qty)*num(l.unitPrice); });
+  var gross=sum(done,function(l){ return num(l.qty)*num(l.unitPrice); });
+  var disc=offerDiscountAmount(done, ctx.discount);
+  var subtotal=gross-disc;
   var cogs=sum(done,function(l){ return num(l.qty)*lineCost(l); });
   var vat=subtotal*(num(state.settings.vatPct)/100);
   var paid=state.offer.editId ? 0 : valNum("of-paid");
   $("of-totals").innerHTML =
-    '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(subtotal)+'</span></div>'+
-    (ctx.discount>0 ? '<div class="r"><span class="l">'+(ctx.tier?esc(ctx.tier.name)+' discount applied':'Client discount applied')+'</span><span class="mono">'+pct(ctx.discount)+'</span></div>' : '')+
+    '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(gross)+'</span></div>'+
+    (disc>0 ? '<div class="r"><span class="l">Discount '+pct(ctx.discount,1)+(ctx.tier?' · '+esc(ctx.tier.name):'')+'</span><span class="mono">−'+money(disc)+'</span></div>'+
+      '<div class="r"><span class="l">After discount</span><span class="mono">'+money(subtotal)+'</span></div>' : '')+
     (cogs>0 ? '<div class="r c-cost"><span class="l">Margin on this offer</span><span class="mono">'+usd(subtotal/ctx.rate-cogs)+' · '+pct((subtotal/ctx.rate-cogs)/((subtotal/ctx.rate)||1),0)+'</span></div>' : '')+
     (vat>0 ? '<div class="r"><span class="l">VAT '+num(state.settings.vatPct)+'%</span><span class="mono">'+money(vat)+'</span></div>' : '')+
     '<div class="r grand"><span class="l">Total</span><span class="v">'+money(subtotal+vat)+'</span></div>'+
@@ -1474,10 +1487,21 @@ function renderComposerIn(){
   refreshMilestoneSum();
 }
 /* ---------- Payment schedule on the offer ---------- */
-function offerTotal(){
-  var done=state.offer.lines.filter(lineReady);
-  return sum(done,function(l){ return num(l.qty)*num(l.unitPrice); })*(1+num(state.settings.vatPct)/100);
+function offerDiscountAmount(lines, pctOff){
+  return sum(lines.filter(function(l){ return l.kind!=="service"; }), function(l){ return num(l.qty)*num(l.unitPrice); }) * pctOff;
 }
+function offerTotal(){
+  var done=state.offer.lines.filter(lineReady), d=Math.min(0.95, Math.max(0, valNum("of-disc")/100));
+  return (sum(done,function(l){ return num(l.qty)*num(l.unitPrice); }) - offerDiscountAmount(done, d))*(1+num(state.settings.vatPct)/100);
+}
+/* Choosing a client brings in their tier and extra discount; it can still be changed by hand. */
+function applyClientDiscount(){
+  var c=clientById($("of-client").value), t=c ? tierById(c.tierId) : null;
+  var d=c ? effectiveDiscount(c) : 0;
+  $("of-disc").value = r2(d*100);
+  $("of-disc-note").textContent = d>0 ? (t ? t.name+(num(c.discountPct)>0 ? " + extra" : "") : "this client's discount") : "";
+}
+$("of-disc").addEventListener("input", function(){ $("of-disc-note").textContent=""; renderComposer(); refreshMilestoneSum(); });
 function renderMilestones(){ return withCur(state.offer.currency, renderMilestonesIn); }
 function renderMilestonesIn(){
   var box=$("of-milestones"); if(!box) return;
@@ -1552,14 +1576,14 @@ $("of-save").addEventListener("click", function(){
   if(!done.some(function(l){ return num(l.qty)>0; })){ toast("Give at least one row a quantity", true); return; }
   var editId=state.offer.editId, rev=state.offer.reviseOf;
   var paid=(editId || rev) ? 0 : valNum("of-paid");
-  var total=sum(done,function(l){ return num(l.qty)*num(l.unitPrice); })*(1+num(state.settings.vatPct)/100);
+  var total=offerTotal();
   if(paid>total+0.004){ toast("Paid now is more than the offer total of "+money(total,2,ctx.currency), true); return; }
   var data={
     clientId:ctx.client.id, region:ctx.region, dealType:ctx.type, serviceType:ctx.service,
     date:ctx.date, dueDate:val("of-due") || null, notes:val("of-notes"),
     site:val("of-site"), tableTitle:val("of-table-title"), soldBy:val("of-seller"),
     paid:paid, method:val("of-method"), setId:state.offer.setId||null,
-    currency:ctx.currency, fxRate:ctx.rate,
+    currency:ctx.currency, fxRate:ctx.rate, discountPct:ctx.discount,
     milestones:(state.offer.milestones||[]).filter(function(m){ return num(m.amount)>0; })
       .map(function(m){ return {label:m.label, amount:num(m.amount), dueDate:m.dueDate||null}; }),
     lines:done.map(function(l){
@@ -1656,14 +1680,16 @@ function openDocIn(t, kind){
   }).join("");
 
   var pays=normalizedPayments(t);
-  var vat=num(t.vatPct)>0;
+  var vat=num(t.vatPct)>0, disc=txDiscount(t)>0.004;
   var totRow=function(label, value, strong){ return '<tr'+(strong?' class="g"':'')+'><td>'+label+'</td><td class="c">'+value+'</td></tr>'; };
   var totals = showMoney ?
     '<table class="d-tot2"><tbody>'+
       totRow("Total Qtys", sum(lines.filter(function(li){ return li.kind!=="service"; }), function(li){ return li.qty; }))+
-      (vat ? totRow("Subtotal ("+esc(code)+") (Excl. VAT)", docMoney(txSubtotal(t)))+totRow("VAT "+num(t.vatPct)+"%", docMoney(txVat(t)))+
-          totRow((kind==="Receipt"?"Invoice total":"Total Price")+" ("+esc(code)+") (Incl. VAT)", docMoney(txTotal(t)), true)
-        : totRow((kind==="Receipt"?"Invoice total":"Total Price")+" ("+esc(code)+") (Excl. VAT)", docMoney(txTotal(t)), true))+
+      /* Total Price is the lines as listed; a discount is shown under it with what is left to pay. */
+      totRow("Total Price ("+esc(code)+") (Excl. VAT)", docMoney(txSubtotal(t)), !disc && !vat)+
+      (disc ? totRow("Total price discount "+r2(num(t.discountPct)*100)+" %", docMoney(txNet(t)), !vat) : '')+
+      (vat ? totRow("VAT "+num(t.vatPct)+"%", docMoney(txVat(t)))+
+          totRow((kind==="Receipt"?"Invoice total":"Total Price")+" ("+esc(code)+") (Incl. VAT)", docMoney(txTotal(t)), true) : '')+
       (kind!=="Quotation" ? totRow("Paid to date", docMoney(txPaid(t)))+totRow("Balance due", docMoney(txBalance(t)), true) : '')+
     '</tbody></table>' : '';
 
@@ -2393,7 +2419,7 @@ function openContact(id){
   $("c-edit").addEventListener("click", function(){ closeDrawer(); editClient(c); });
   $("c-offer").addEventListener("click", function(){
     closeDrawer(); openComposer();
-    $("of-client").value=c.id; if(c.region) $("of-region").value=c.region; renderComposer();
+    $("of-client").value=c.id; if(c.region) $("of-region").value=c.region; applyClientDiscount(); renderComposer();
   });
 }
 function editClient(c){
@@ -2814,7 +2840,7 @@ function workbookSheets(){
       "Programming fee":r2(it.programmingFee), "Cover add-on":r2(it.priceAddOn)}; });
   var sheets=[
     ["Deals", state.transactions.map(function(t){ return {"Reference":t.refNo, "Date":txDocDate(t), "Client":t.clientName, "Client type":t.clientType,
-      "Region":t.region, "Site":t.site||"", "Sold by":t.soldBy||"", "Stage":t.status, "Currency":txCur(t), "Rate per $1":txRate(t), "Subtotal":r2(txSubtotal(t)), "VAT":r2(txVat(t)), "Total":r2(txTotal(t)),
+      "Region":t.region, "Site":t.site||"", "Sold by":t.soldBy||"", "Stage":t.status, "Currency":txCur(t), "Rate per $1":txRate(t), "Subtotal":r2(txSubtotal(t)), "Discount %":r2(num(t.discountPct)*100), "Discount":r2(txDiscount(t)), "VAT":r2(txVat(t)), "Total":r2(txTotal(t)),
       "Paid":r2(txPaid(t)), "Balance":r2(txBalance(t)), "Total ($)":r2(toBase(t,txTotal(t))), "Cost of goods ($)":r2(txCOGS(t)), "Margin ($)":r2(txMargin(t)), "Invoiced on":t.invoiceDate||"", "Delivered on":t.deliveredDate||""}; })],
     ["Deal lines", [].concat.apply([], state.transactions.map(function(t){ return (t.lineItems||[]).map(function(li){
       return {"Reference":t.refNo, "Client":t.clientName, "Stage":t.status, "Item":li.name, "Qty":num(li.qty), "Delivered":num(li.deliveredQty),

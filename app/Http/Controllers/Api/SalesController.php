@@ -43,7 +43,7 @@ class SalesController extends Controller
         $settings = CompanySetting::current();
 
         $paid = (float) ($data['paid'] ?? 0);
-        $total = $this->itemsSubtotal($items) * (1 + $settings->vat_pct / 100);
+        $total = $this->itemsSubtotal($items, (float) ($data['discountPct'] ?? 0)) * (1 + $settings->vat_pct / 100);
         if ($paid > $total + self::CENT) {
             throw ValidationException::withMessages(['paid' => 'The payment is more than the offer total of $'.number_format($total, 2).'.']);
         }
@@ -62,6 +62,7 @@ class SalesController extends Controller
                 'region' => $data['region'], 'service_type' => $data['serviceType'], 'status' => 'Quotation',
                 'vat_pct' => $settings->vat_pct,
                 'currency' => $cur, 'fx_rate' => $rate,
+                'discount_pct' => (float) ($data['discountPct'] ?? 0),
                 'quotation_date' => $date->toDateString(),
                 'due_date' => $data['dueDate'] ?? null,
                 'site' => $data['site'] ?? null,
@@ -106,7 +107,7 @@ class SalesController extends Controller
         $items = $this->buildItems($data['lines']);
         $this->requireQuantity($items);
 
-        $total = $this->itemsSubtotal($items) * (1 + $transaction->vat_pct / 100);
+        $total = $this->itemsSubtotal($items, (float) ($data['discountPct'] ?? 0)) * (1 + $transaction->vat_pct / 100);
         $paid = $transaction->paid();
         if ($paid > $total + self::CENT) {
             throw ValidationException::withMessages(['lines' => 'The new total ($'.number_format($total, 2).') is less than the $'.number_format($paid, 2).' already paid. Delete or refund a payment first.']);
@@ -124,6 +125,7 @@ class SalesController extends Controller
                 'client_id' => $client->id, 'client_name' => $client->name, 'client_type' => $client->type,
                 'region' => $data['region'], 'service_type' => $data['serviceType'],
                 'currency' => $cur, 'fx_rate' => $rate,
+                'discount_pct' => (float) ($data['discountPct'] ?? 0),
                 'quotation_date' => Carbon::parse($data['date'])->toDateString(),
                 'due_date' => $data['dueDate'] ?? null,
                 'site' => $data['site'] ?? null,
@@ -165,7 +167,7 @@ class SalesController extends Controller
             $paid = $src->paid();
             // Money already taken moves to the new version, so it stays in the same currency.
             [$cur, $rate] = $this->currency($data, $paid > 0 ? $src : null);
-            $total = $this->itemsSubtotal($items) * (1 + $vat / 100);
+            $total = $this->itemsSubtotal($items, (float) ($data['discountPct'] ?? 0)) * (1 + $vat / 100);
             if ($paid > $total + self::CENT) {
                 throw ValidationException::withMessages(['lines' => 'The new total ($'.number_format($total, 2).') is less than the $'.number_format($paid, 2).' already paid on this offer.']);
             }
@@ -177,6 +179,7 @@ class SalesController extends Controller
                 'region' => $data['region'], 'service_type' => $data['serviceType'], 'status' => 'Quotation',
                 'vat_pct' => $vat,
                 'currency' => $cur, 'fx_rate' => $rate,
+                'discount_pct' => (float) ($data['discountPct'] ?? 0),
                 'quotation_date' => Carbon::parse($data['date'])->toDateString(),
                 'due_date' => $data['dueDate'] ?? null,
                 'site' => $data['site'] ?? null,
@@ -491,6 +494,7 @@ class SalesController extends Controller
             'lines.*.qty' => 'required|integer|min:0',
             'setId' => 'nullable|integer|exists:offer_sets,id',
             'currency' => 'nullable|string|size:3',
+            'discountPct' => 'nullable|numeric|min:0|max:0.95',
             'fxRate' => 'nullable|numeric|gt:0',
             'lines.*.unitPrice' => 'required|numeric|min:0',
             'lines.*.standardPrice' => 'nullable|numeric|min:0',
@@ -557,9 +561,13 @@ class SalesController extends Controller
         }
     }
 
-    private function itemsSubtotal(array $items): float
+    /** What the lines come to after the discount on the total (labour is not discounted). */
+    private function itemsSubtotal(array $items, float $discount = 0): float
     {
-        return array_sum(array_map(fn ($i) => $i['qty'] * $i['unit_price'], $items));
+        $all = array_sum(array_map(fn ($i) => $i['qty'] * $i['unit_price'], $items));
+        $goods = array_sum(array_map(fn ($i) => $i['kind'] === 'service' ? 0 : $i['qty'] * $i['unit_price'], $items));
+
+        return $all - $goods * $discount;
     }
 
     private function codes(array $data): array
