@@ -1478,7 +1478,7 @@ function renderComposerIn(){
   var paid=state.offer.editId ? 0 : valNum("of-paid");
   $("of-totals").innerHTML =
     '<div class="r"><span class="l">Subtotal</span><span class="mono">'+money(gross)+'</span></div>'+
-    (disc>0 ? '<div class="r"><span class="l">Discount '+pct(ctx.discount,1)+(ctx.tier?' · '+esc(ctx.tier.name):'')+'</span><span class="mono">−'+money(disc)+'</span></div>'+
+    (disc>0 ? '<div class="r"><span class="l">Discount '+r2(ctx.discount*100)+'%</span><span class="mono">−'+money(disc)+'</span></div>'+
       '<div class="r"><span class="l">After discount</span><span class="mono">'+money(subtotal)+'</span></div>' : '')+
     (cogs>0 ? '<div class="r c-cost"><span class="l">Margin on this offer</span><span class="mono">'+usd(subtotal/ctx.rate-cogs)+' · '+pct((subtotal/ctx.rate-cogs)/((subtotal/ctx.rate)||1),0)+'</span></div>' : '')+
     (vat>0 ? '<div class="r"><span class="l">VAT '+num(state.settings.vatPct)+'%</span><span class="mono">'+money(vat)+'</span></div>' : '')+
