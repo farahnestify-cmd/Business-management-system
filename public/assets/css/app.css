@@ -449,3 +449,4 @@ html:not([data-role="owner"]) .c-cost{display:none!important}
 #toast button{background:transparent; border:1px solid color-mix(in srgb, currentColor 40%, transparent); color:inherit;
   border-radius:99px; padding:3px 12px; font-size:12px; font-weight:600; cursor:pointer}
 #toast button:hover{background:color-mix(in srgb, currentColor 14%, transparent)}
+#of-disc[readonly]{opacity:.65}

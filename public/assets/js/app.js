@@ -1135,7 +1135,7 @@ function openComposer(tx, mode){
   $("of-notes").value = src ? (src.notes||"") : "";
   $("of-site").value = src ? (src.site||"") : "";
   $("of-table-title").value = src ? (src.tableTitle||"") : "";
-  $("of-disc").value = src ? r2(num(src.discountPct)*100) : 0; $("of-disc-note").textContent="";
+  setDiscount(src && num(src.discountPct)>0 ? "custom" : "none", src ? num(src.discountPct) : 0);
   /* New offers are stamped with whoever writes them; anyone can be named instead. */
   $("of-seller").value = src ? (src.soldBy||"") : (state.user ? state.user.name : "");
   var names={};
@@ -1184,7 +1184,7 @@ function saveDraft(){
     window.localStorage.setItem(draftKey(), JSON.stringify({savedAt:new Date().toISOString(),
       offer:{mode:state.offer.mode, reviseOf:state.offer.reviseOf, setId:state.offer.setId||"", lines:state.offer.lines, milestones:state.offer.milestones||[],
         paidStages:state.offer.paidStages||[], ref:state.offer.ref||"", currency:state.offer.currency||"USD", fxRate:state.offer.fxRate||1},
-      fields:{client:val("of-client"), region:val("of-region"), date:val("of-date"), site:val("of-site"), tableTitle:val("of-table-title"), disc:val("of-disc"), seller:val("of-seller"),
+      fields:{client:val("of-client"), region:val("of-region"), date:val("of-date"), site:val("of-site"), tableTitle:val("of-table-title"), disc:val("of-disc"), discPick:val("of-disc-pick"), seller:val("of-seller"),
         paid:val("of-paid"), method:val("of-method"), due:val("of-due"), notes:val("of-notes"), type:radioVal("oftype"), service:radioVal("ofservice")}}));
   }catch(e){}
 }
@@ -1204,7 +1204,7 @@ function restoreDraft(d){
     currency:o.currency||"USD", fxRate:num(o.fxRate)||1};
   fillCurrencySelect();
   $("of-client").value=f.client||""; $("of-region").value=f.region||"West Bank"; $("of-date").value=f.date||todayISO();
-  $("of-site").value=f.site||""; $("of-table-title").value=f.tableTitle||""; $("of-disc").value=f.disc||0; $("of-seller").value=f.seller||""; $("of-paid").value=f.paid||0; $("of-method").value=f.method||"Cash";
+  $("of-site").value=f.site||""; $("of-table-title").value=f.tableTitle||""; setDiscount(f.discPick||"custom", num(f.disc)/100); $("of-seller").value=f.seller||""; $("of-paid").value=f.paid||0; $("of-method").value=f.method||"Cash";
   $("of-due").value=f.due||""; $("of-notes").value=f.notes||"";
   setRadio("oftype", f.type||"Direct"); setRadio("ofservice", f.service||"With Programming");
   $("of-paid-wrap").hidden = $("of-method-wrap").hidden = asRevision;
@@ -1496,12 +1496,36 @@ function offerTotal(){
 }
 /* Choosing a client brings in their tier and extra discount; it can still be changed by hand. */
 function applyClientDiscount(){
-  var c=clientById($("of-client").value), t=c ? tierById(c.tierId) : null;
-  var d=c ? effectiveDiscount(c) : 0;
-  $("of-disc").value = r2(d*100);
-  $("of-disc-note").textContent = d>0 ? (t ? t.name+(num(c.discountPct)>0 ? " + extra" : "") : "this client's discount") : "";
+  var c=clientById($("of-client").value);
+  setDiscount(c && effectiveDiscount(c)>0 ? "client" : "none");
 }
-$("of-disc").addEventListener("input", function(){ $("of-disc-note").textContent=""; renderComposer(); refreshMilestoneSum(); });
+/* The discount picker: none, the client's own, any active price tier, or a figure typed in. */
+function discountChoices(){
+  var c=clientById($("of-client").value), mine=c ? effectiveDiscount(c) : 0, t=c ? tierById(c.tierId) : null;
+  var out=[{key:"none", label:"No discount", pct:0}];
+  if(mine>0) out.push({key:"client", label:"This client's discount"+(t ? " · "+t.name+(num(c.discountPct)>0?" + extra":"") : ""), pct:mine});
+  (state.tiers||[]).filter(function(x){ return x.active && num(x.discountPct)>0; }).forEach(function(x){
+    out.push({key:"t:"+x.id, label:x.name+(x.code?" ("+x.code+")":""), pct:num(x.discountPct)});
+  });
+  out.push({key:"custom", label:"Custom — type the %", pct:null});
+  return out;
+}
+function setDiscount(key, pctValue){
+  var list=discountChoices(), hit=list.filter(function(o){ return o.key===key; })[0] || list[list.length-1];
+  $("of-disc-pick").innerHTML=list.map(function(o){
+    return '<option value="'+esc(o.key)+'">'+esc(o.label)+(o.pct!=null ? ' — '+r2(o.pct*100)+'%' : '')+'</option>'; }).join("");
+  $("of-disc-pick").value=hit.key;
+  var p = hit.pct!=null ? hit.pct : num(pctValue);
+  $("of-disc").value = r2(p*100);
+  $("of-disc").readOnly = hit.key!=="custom";
+  $("of-disc-note").textContent = hit.key==="custom" ? "" : (p>0 ? "comes off the goods, not the labour" : "");
+}
+$("of-disc-pick").addEventListener("change", function(){
+  setDiscount($("of-disc-pick").value, valNum("of-disc")/100);
+  if($("of-disc-pick").value==="custom") $("of-disc").focus();
+  renderComposer(); refreshMilestoneSum(); scheduleDraftSave();
+});
+$("of-disc").addEventListener("input", function(){ renderComposer(); refreshMilestoneSum(); });
 function renderMilestones(){ return withCur(state.offer.currency, renderMilestonesIn); }
 function renderMilestonesIn(){
   var box=$("of-milestones"); if(!box) return;
