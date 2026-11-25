@@ -362,7 +362,7 @@
           <div class="panel panel-pad">
             <div class="grid g2">
               <div class="field"><label>Logo</label><div class="brand-box" id="s-logo-box"></div></div>
-              <div class="field"><label>Picture under the notes on page 2</label><div class="brand-box" id="s-hero-box"></div></div>
+              <div class="field"><label>Picture under the notes on page 2 (empty = the protocols picture)</label><div class="brand-box" id="s-hero-box"></div></div>
             </div>
             <input type="file" id="s-image-file" accept="image/png,image/jpeg,image/webp" hidden>
             <div class="grid" style="margin-top:14px">

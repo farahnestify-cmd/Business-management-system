@@ -5,7 +5,7 @@
    1. STATE
    ============================================================ */
 var DEFAULTS = {
-  name:"Nestify", tagline:"Smart Home Systems", phone:"", email:"", website:"", address:"",
+  name:"nestify", tagline:"Smart Home Systems", phone:"", email:"", website:"", address:"",
   vatPct:0, validityDays:14, overdueDays:14, staleDays:21, varianceFlag:15,
   termsQuotation:"All prices in USD. This quotation is valid for {validity} days from the date above. A down payment confirms the order and reserves the stock listed.",
   termsAgreement:"This agreement confirms the scope and prices listed above. The balance falls due on delivery unless a date is stated. Nestify remains the owner of the goods until payment is received in full.",
@@ -683,7 +683,7 @@ $("search").addEventListener("focus", function(){ openPalette(this.value); this.
    ============================================================ */
 function applyBrand(){
   var s=state.settings;
-  $("brand-mark").textContent = s.name || "Nestify";
+  $("brand-mark").textContent = s.name || "nestify";
   $("brand-sub").textContent = "Operations";
   $("ref-hint").textContent = buildRef(yymmOf(todayISO()),"W","D", nextSeq(yymmOf(todayISO())));
   if(state.user) $("who").textContent = state.user.name + " · " + (ROLE_LABEL[state.user.role]||state.user.role);
@@ -1603,7 +1603,7 @@ function prepareWhiteLogo(){
 }
 function docPage(inner, cls){ return '<div class="d-page'+(cls?" "+cls:"")+'">'+inner+'</div>'; }
 function docBrandBar(s){
-  return '<div class="d-bar">'+(s.logo ? '<img class="d-logo" src="'+esc(s.logo)+'" alt="'+esc(s.name||"")+'">' : '<span class="d-word">'+esc(s.name||"Nestify")+'</span>')+
+  return '<div class="d-bar">'+(s.logo ? '<img class="d-logo" src="'+esc(s.logo)+'" alt="'+esc(s.name||"")+'">' : '<span class="d-word">'+esc(s.name||"nestify")+'</span>')+
     '<span class="d-bar-r">'+esc(s.tagline||"")+'</span></div>';
 }
 function docFootBar(s, page, of){
@@ -1669,7 +1669,7 @@ function openDocIn(t, kind){
 
   var sheet =
     '<div class="d-top">'+
-      '<div class="d-mark">'+(s.logo ? '<img class="d-logo-big" src="'+esc(s.logo)+'" alt="'+esc(s.name||"")+'">' : '<b>'+esc(s.name||"Nestify")+'</b>')+
+      '<div class="d-mark">'+(s.logo ? '<img class="d-logo-big" src="'+esc(s.logo)+'" alt="'+esc(s.name||"")+'">' : '<b>'+esc(s.name||"nestify")+'</b>')+
         '<span>'+esc(s.tagline||"")+'</span></div>'+
       '<div class="d-kind"><div class="k">'+esc(kind)+'</div><div class="r">'+esc(refMap[kind])+'</div>'+
         '<div class="dt">'+fmtDate(dateMap[kind]||todayISO())+'</div></div>'+
@@ -1694,7 +1694,7 @@ function openDocIn(t, kind){
       '</tbody></table>' : '')+
     (terms ? '<div class="d-note">'+esc(terms)+'</div>' : '')+
     (kind==="Agreement" || kind==="Delivery Note" ?
-      '<div class="d-sign"><div>Client signature</div><div>For '+esc(s.name||"Nestify")+'</div></div>' : '')+
+      '<div class="d-sign"><div>Client signature</div><div>For '+esc(s.name||"nestify")+'</div></div>' : '')+
     '<div class="d-foot"><span>'+[s.phone,s.email,s.website].filter(Boolean).map(esc).join("  ·  ")+'</span><span>'+esc(s.address||"")+'</span></div>';
 
   /* Full quotation: cover, opening page, the offer, back page. Every other document is one sheet. */
@@ -1704,7 +1704,7 @@ function openDocIn(t, kind){
   } else {
     var bullets=curWording(t, String(s.offerNotes||"")).split("\n").map(function(x){ return x.trim(); }).filter(Boolean);
     var logoOrName = function(dark){ return s.logo ? '<img src="'+esc(dark ? s.logo : (whiteLogo.url||s.logo))+'" alt="'+esc(s.name||"")+'">'
-      : '<div class="d-cover-word"'+(dark?' style="color:#161A16"':'')+'>'+esc(s.name||"Nestify")+'</div>'; };
+      : '<div class="d-cover-word"'+(dark?' style="color:#161A16"':'')+'>'+esc(s.name||"nestify")+'</div>'; };
     /* A white cover: who it is for at the top, the logo in the middle, the welcome line at the foot. */
     var cover =
       '<div class="d-cover">'+
@@ -1717,7 +1717,8 @@ function openDocIn(t, kind){
     var notes = docBrandBar(s)+'<div class="d-body d-opening">'+
         (s.introText ? '<p class="d-intro">'+esc(s.introText)+'</p>' : '')+
         (bullets.length ? '<ul class="d-bullets">'+bullets.map(function(b){ return '<li>'+esc(b)+'</li>'; }).join("")+'</ul>' : '')+
-        (s.hero ? '<div class="d-opening-pic"><img src="'+esc(s.hero)+'" alt=""></div>' : '')+
+        /* The company's own picture, or the smart-home protocols picture that ships with the app. */
+        '<div class="d-opening-pic"><img src="'+esc(s.hero || (BASE+"/assets/img/opening.png"))+'" alt=""></div>'+
       '</div>'+docFootBar(s, 2, 4);
     var back = '<div class="d-back">'+logoOrName(true)+'<div class="d-back-tag">'+esc(s.tagline||"")+'</div></div>';
     $("doc").innerHTML = docPage(cover, "d-page-full") + docPage(notes, "d-page-bar") +
@@ -2717,7 +2718,7 @@ function renderSettings(){
 });
 $("s-save").addEventListener("click", function(){
   var data={
-    name:val("s-name")||"Nestify", tagline:val("s-tagline"), phone:val("s-phone"), email:val("s-email"),
+    name:val("s-name")||"nestify", tagline:val("s-tagline"), phone:val("s-phone"), email:val("s-email"),
     website:val("s-website"), address:val("s-address"), vatPct:valNum("s-vat"), validityDays:valNum("s-validity")||14,
     termsQuotation:val("s-terms-q"), termsAgreement:val("s-terms-a"), termsInvoice:val("s-terms-i"),
     introText:$("s-intro").value.trim(), offerNotes:$("s-bullets").value.trim(), coverNote:val("s-cover-note"),

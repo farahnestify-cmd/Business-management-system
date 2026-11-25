@@ -32,7 +32,7 @@ class SettingsController extends Controller
 
         $s = CompanySetting::current();
         $s->fill([
-            'name' => ($data['name'] ?? '') ?: 'Nestify',
+            'name' => ($data['name'] ?? '') ?: 'nestify',
             'tagline' => $data['tagline'] ?? null,
             'phone' => $data['phone'] ?? null,
             'email' => $data['email'] ?? null,

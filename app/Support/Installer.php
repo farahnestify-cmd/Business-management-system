@@ -110,7 +110,7 @@ class Installer
             'password' => $in['owner_password'],
             'role' => 'owner',
         ]);
-        CompanySetting::current()->update(['name' => $in['company'] ?: 'Nestify']);
+        CompanySetting::current()->update(['name' => $in['company'] ?: 'nestify']);
 
         file_put_contents(self::lockFile(), date('c'));
     }
