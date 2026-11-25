@@ -1025,9 +1025,13 @@ function openTxIn(id){
       '<button class="btn sm" type="button" data-doc="Quotation">Quotation</button>'+
       (t.agreementDate||isBilled(t) ? '<button class="btn sm" type="button" data-doc="Agreement">Agreement</button>' : '')+
       (isBilled(t) ? '<button class="btn sm" type="button" data-doc="Invoice">Invoice</button>' : '')+
-      (deliveredSome(t) ? '<button class="btn sm" type="button" data-doc="Delivery Note">Delivery note</button>' : '')+
+      (deliveredSome(t) || deliveryLog(t).length ? '<button class="btn sm" type="button" data-doc="Delivery Note">Delivery note</button>' : '')+
       (txPaid(t)>0 ? '<button class="btn sm" type="button" data-doc="Receipt">Receipt</button>' : '')+
     '</div>'+
+    deliveryLogHtml(t, false)+
+    (isBilled(t) ? '<div style="display:flex; gap:8px; flex-wrap:wrap">'+
+      (deliveredSome(t) ? '<button class="btn sm" type="button" id="tx-return">Return an item</button>' : '')+
+      '<button class="btn sm" type="button" id="tx-extra">Deliver an extra item</button></div>' : '')+
     (plan.later.length ?
       '<p class="tiny" style="color:var(--warn)">'+(plan.now.length ? 'Delivering now: '+esc(listQty(plan.now))+'.<br>' : 'Nothing in stock to deliver yet.<br>')+
       'Still to come: '+esc(listQty(plan.later))+'. It stays on the To deliver list until the stock arrives.</p>' : '')+
@@ -1066,6 +1070,8 @@ function openTxIn(id){
     });
   });
   if($("tx-edit")) $("tx-edit").addEventListener("click", function(){ closeDrawer(); openComposer(t, "edit"); });
+  if($("tx-return")) $("tx-return").addEventListener("click", function(){ returnItemForm(t); });
+  if($("tx-extra")) $("tx-extra").addEventListener("click", function(){ extraItemForm(t); });
   if($("tx-revise")) $("tx-revise").addEventListener("click", function(){ closeDrawer(); openComposer(t, "revise"); });
   $("drawer-body").querySelectorAll("[data-ver]").forEach(function(a){
     a.addEventListener("click", function(e){ e.preventDefault(); openTx(a.dataset.ver); });
@@ -1219,6 +1225,88 @@ $("composer").addEventListener("change", scheduleDraftSave);
 function requestCloseComposer(){
   if(offerHasContent() && state.offer.mode!=="edit" && !window.confirm("Discard this offer? What you have written here will be lost.")) return;
   clearDraft(); closeComposer();
+}
+
+/* ---------- After delivery: returns and extra items ---------- */
+function deliveryLog(t){
+  return sortBy(state.deliveries.filter(function(d){ return d.transactionId===t.id; }), function(d){ return (d.date||"")+String(d.id).padStart(10,"0"); });
+}
+/* Every movement on the deal, oldest first: what went out, what came back, what went out again. */
+function deliveryLogHtml(t, printed){
+  var log=deliveryLog(t); if(!log.length) return "";
+  var rows=log.map(function(d){
+    var back=d.type==="return";
+    return '<tr><td>'+fmtDate(d.date)+'</td><td>'+(printed ? (back?"Returned":"Delivered") : '<span class="pill '+(back?"warn":"good")+'">'+(back?"Returned":"Delivered")+'</span>')+'</td>'+
+      '<td>'+esc(d.name)+(d.note ? '<div class="tiny faint">'+esc(d.note)+'</div>' : '')+'</td>'+
+      '<td class="'+(printed?"c":"num")+'">'+num(d.qty)+'</td>'+(printed ? '' : '<td class="tiny muted">'+esc(d.by||"")+'</td>')+'</tr>';
+  }).join("");
+  if(printed) return '<table class="d-items" style="margin-top:22px"><thead><tr class="d-ttl"><th colspan="4">Delivery log</th></tr>'+
+    '<tr><th>Date</th><th>Movement</th><th>Item</th><th class="c">Qty</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  return '<div class="section"><p class="eyebrow">Delivery log</p><div class="panel"><div class="table-wrap"><table>'+
+    '<thead><tr><th>Date</th><th>Movement</th><th>Item</th><th class="num">Qty</th><th>By</th></tr></thead><tbody>'+rows+'</tbody></table></div></div></div>';
+}
+function returnItemForm(t){
+  var lines=(t.lineItems||[]).filter(function(li){ return li.kind!=="service" && num(li.deliveredQty)>0; });
+  if(!lines.length){ toast("Nothing has gone out on this deal yet", true); return; }
+  openForm("Return an item — "+t.refNo, [
+    {fields:[{id:"r-line", label:"Item", type:"select", options:lines.map(function(li){ return {value:li.id, label:li.name+" · "+num(li.deliveredQty)+" delivered"}; })},
+             {id:"r-qty", label:"How many came back", type:"number", step:"1", min:1, value:1}]},
+    {fields:[{id:"r-out", label:"What happens now", type:"select", value:"replace", options:[
+      {value:"replace", label:"It will be replaced — deliver it again later"},
+      {value:"remove", label:"The client does not keep it — take it off the invoice"}]}]},
+    {fields:[{id:"r-note", label:"Why (shows in the log)", placeholder:"Faulty unit, wrong colour…"}]},
+    {note:"The units go back into stock. A replacement waits on the To deliver list until you press Deliver; taking it off the invoice lowers the total, and if the client already paid more, the deal shows the refund due."}
+  ], function(){
+    var li=byId(lines, val("r-line")), q=valNum("r-qty");
+    if(q<1 || q!==Math.round(q)){ toast("Enter how many came back", true); return false; }
+    if(q>num(li.deliveredQty)){ toast("Only "+num(li.deliveredQty)+" of "+li.name+" went out", true); return false; }
+    send("POST", "transactions/"+t.id+"/returns", {lineId:Number(li.id), qty:q, outcome:val("r-out"), note:val("r-note")},
+      function(){ closeForm(); openTx(t.id); }, "Return recorded");
+    return false;
+  });
+}
+function extraItemForm(t){
+  var c=clientById(t.clientId), tier=c ? tierById(c.tierId) : null;
+  var ctx={clientType: tier ? (tier.basis==="Dealer" ? "Dealer" : "End User") : t.clientType, region:t.region, service:t.serviceType};
+  var items=[{value:"", label:"Choose…"}]
+    .concat(state.products.map(function(p){ return {value:"p:"+p.id, label:p.name}; }))
+    .concat(state.bases.map(function(b){ return {value:"b:"+b.id, label:b.name+" (base — choose its cover)"}; }));
+  var covers=[{value:"", label:"—"}].concat(state.covers.map(function(cv){ return {value:cv.id, label:cv.name+(cv.line?" · line "+cv.line:"")}; }));
+  openForm("Deliver an extra item — "+t.refNo, [
+    {fields:[{id:"x-item", label:"Item", type:"select", options:items, value:""},
+             {id:"x-cover", label:"Cover (for a base)", type:"select", options:covers, value:""}]},
+    {fields:[{id:"x-qty", label:"How many", type:"number", step:"1", min:1, value:1},
+             {id:"x-price", label:"Unit price ("+txCur(t)+") — 0 if it is free", type:"number", step:"0.01", min:0, value:0}]},
+    {fields:[{id:"x-note", label:"Note (shows in the log)", placeholder:"Added on site, swapped model…"}]},
+    {note:"It is added to this deal as a new line and handed over from stock now. What is not in stock waits on the To deliver list."+
+      (num(t.discountPct)>0 ? " The deal's "+r2(num(t.discountPct)*100)+"% discount applies to it too." : "")}
+  ], function(){
+    var v=val("x-item"), q=valNum("x-qty");
+    if(!v){ toast("Choose the item", true); return false; }
+    if(q<1 || q!==Math.round(q)){ toast("Enter how many", true); return false; }
+    var data={qty:q, unitPrice:valNum("x-price"), note:val("x-note")};
+    if(v.indexOf("p:")===0){ data.kind="product"; data.productId=Number(v.slice(2)); }
+    else {
+      var b=baseById(v.slice(2)), cv=coverById(val("x-cover"));
+      if(!cv){ toast("Choose the cover for this base", true); return false; }
+      if(b && cv.line && b.line && cv.line!==b.line){ toast("That cover belongs to another line", true); return false; }
+      data.kind="combo"; data.baseId=Number(v.slice(2)); data.coverId=Number(cv.id);
+    }
+    send("POST", "transactions/"+t.id+"/extra", data, function(res){
+      closeForm(); openTx(t.id);
+      toast(res && res.waiting ? res.delivered+" delivered now, "+res.waiting+" waiting for stock" : "Delivered and added to the deal");
+    });
+    return false;
+  });
+  /* The price starts at the client's book price and can be changed (0 for a free item). */
+  function suggest(){
+    var v=val("x-item"), line=null;
+    if(v.indexOf("p:")===0) line={kind:"product", productId:v.slice(2)};
+    if(v.indexOf("b:")===0) line={kind:"combo", baseId:v.slice(2), coverId:val("x-cover")};
+    $("x-price").value = line ? r2(lineStandard(line, ctx)*txRate(t)) : 0;
+  }
+  $("x-item").addEventListener("change", suggest);
+  $("x-cover").addEventListener("change", suggest);
 }
 
 /* ---------- Offer sets ---------- */
@@ -1685,7 +1773,11 @@ function openDocIn(t, kind){
   terms = curWording(t, String(terms||"").replace("{validity}", num(s.validityDays)));
 
   var isNote = kind==="Delivery Note";
-  var lines=(t.lineItems||[]).filter(function(li){ return !(isNote && li.kind==="service"); });
+  /* After the quotation, a line taken off the deal (nothing left, nothing with the client) is not printed. */
+  var lines=(t.lineItems||[]).filter(function(li){
+    if(isNote && li.kind==="service") return false;
+    return kind==="Quotation" || num(li.qty)>0 || num(li.deliveredQty)>0;
+  });
   /* The Image column only appears when at least one line has a picture. */
   var withPics = lines.some(function(li){ return !!lineImage(li); });
   var code=txCur(t);
@@ -1732,6 +1824,7 @@ function openDocIn(t, kind){
         (kind==="Quotation" ? fmtDate(addDays(txDocDate(t), num(s.validityDays))) : esc(t.refNo))+'</div></div>'+
     '</div>'+
     '<table class="d-items"><thead>'+title+head+'</thead><tbody>'+rows+'</tbody></table>'+
+    (isNote ? deliveryLogHtml(t, true) : '')+
     totals+
     ((kind==="Agreement" || kind==="Invoice") && (t.milestones||[]).length ?
       '<table style="margin-top:24px"><thead><tr><th>Payment stage</th><th>Due</th><th class="num">Amount</th></tr></thead><tbody>'+
@@ -1951,7 +2044,9 @@ function stockHistory(kind, id){
   state.deliveries.forEach(function(d){
     if(!lineUses(d, kind, id)) return;
     var t=byId(state.transactions, d.transactionId)||{};
-    rows.push({date:d.date, what:"Delivered to "+(t.clientName||"—"), ref:t.refNo||"", qty:-num(d.qty), by:d.by, go:t.id ? function(){ openTx(t.id); } : null});
+    var back=d.type==="return";
+    rows.push({date:d.date, what:(back ? "Returned by " : "Delivered to ")+(t.clientName||"—")+(d.note ? " — "+d.note : ""), ref:t.refNo||"",
+      qty:back ? num(d.qty) : -num(d.qty), by:d.by, go:t.id ? function(){ openTx(t.id); } : null});
   });
   state.orders.forEach(function(o){
     if(o.status!=="Received") return;
@@ -2878,7 +2973,8 @@ function workbookSheets(){
         "Deals":st.deals, "Billed":r2(st.billed), "Paid":r2(st.paid), "Outstanding":r2(st.outstanding)}; })],
     ["Stock", stockRows],
     ["Deliveries", state.deliveries.map(function(d){ var t=byId(state.transactions,d.transactionId)||{};
-      return {"Date":d.date, "Reference":t.refNo||"", "Client":t.clientName||"", "Item":d.name, "Qty":num(d.qty), "By":d.by||""}; })],
+      return {"Date":d.date, "Reference":t.refNo||"", "Client":t.clientName||"", "Movement":d.type==="return" ? "Returned" : "Delivered",
+        "Item":d.name, "Qty":num(d.qty), "Note":d.note||"", "By":d.by||""}; })],
     ["Purchase orders", state.orders.map(function(o){ return {"Order":o.refNo, "Supplier":o.supplierName, "Stage":o.status, "Ordered":o.orderedDate||"",
       "Expected":o.expectedDate||"", "Received":o.receivedDate||"", "Units":poUnits(o), "Cost":r2(poTotal(o))}; })],
     ["Suppliers", state.suppliers.map(function(sp){ var st=supplierStats(sp);

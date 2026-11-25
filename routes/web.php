@@ -32,6 +32,8 @@ Route::middleware('auth')->group(function () {
         Route::put('transactions/{transaction}', [SalesController::class, 'update']);
         Route::post('transactions/{transaction}/advance', [SalesController::class, 'advance']);
         Route::post('transactions/{transaction}/deliver', [SalesController::class, 'deliver']);
+        Route::post('transactions/{transaction}/returns', [SalesController::class, 'returnItem']);
+        Route::post('transactions/{transaction}/extra', [SalesController::class, 'deliverExtra']);
         Route::post('transactions/{transaction}/milestones/{milestone}/pay', [SalesController::class, 'payMilestone']);
         Route::post('transactions/{transaction}/refunds', [SalesController::class, 'refund']);
         Route::post('transactions/{transaction}/revise', [SalesController::class, 'revise']);

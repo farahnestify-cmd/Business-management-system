@@ -23,6 +23,7 @@ class TransactionItem extends Model
     public function toApi(): array
     {
         $row = [
+            'id' => (string) $this->id,
             'kind' => $this->kind,
             'name' => $this->name,
             'qty' => (int) $this->qty,

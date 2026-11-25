@@ -427,6 +427,123 @@ class SalesController extends Controller
         });
     }
 
+    /**
+     * Something delivered comes back. "replace": it goes out again later (faulty unit,
+     * wrong colour), so the deal waits for it. "remove": the client does not keep it,
+     * so it also comes off the invoice. Either way it is back in stock and in the log.
+     */
+    public function returnItem(Request $request, Transaction $transaction)
+    {
+        $data = $request->validate([
+            'lineId' => 'required|integer',
+            'qty' => 'required|integer|min:1',
+            'outcome' => 'required|in:replace,remove',
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        return DB::transaction(function () use ($transaction, $data) {
+            $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
+            $this->requireDeliveryStage($tx);
+            $li = $tx->items()->lockForUpdate()->find($data['lineId']);
+            if (! $li || $li->kind === 'service') {
+                throw ValidationException::withMessages(['lineId' => 'Choose an item that was delivered.']);
+            }
+            if ($data['qty'] > $li->delivered_qty) {
+                throw ValidationException::withMessages(['qty' => 'Only '.$li->delivered_qty.' of '.$li->name.' went out on this deal.']);
+            }
+
+            foreach ($this->stockParts($li) as $m) {
+                $m->stock_on_hand += $data['qty'];
+                $m->save();
+            }
+            $li->delivered_qty -= $data['qty'];
+            if ($data['outcome'] === 'remove') {
+                $li->qty -= $data['qty'];
+            }
+            $li->save();
+
+            Delivery::create([
+                'transaction_id' => $tx->id, 'transaction_item_id' => $li->id, 'qty' => $data['qty'], 'type' => 'return',
+                'note' => trim(($data['outcome'] === 'remove' ? 'Taken off the deal' : 'To be replaced').'. '.($data['note'] ?? '')),
+                'delivered_on' => now()->toDateString(), 'user_id' => auth()->id(),
+            ]);
+            $this->settleDeliveryStage($tx->fresh('items'));
+
+            return response()->json(['ok' => true]);
+        });
+    }
+
+    /**
+     * An item the offer did not list goes out on this deal: it is added as a new line
+     * (at the price given, which may be 0 for something given free) and handed over
+     * from stock straight away. What is not in stock waits on the To deliver list.
+     */
+    public function deliverExtra(Request $request, Transaction $transaction)
+    {
+        $data = $request->validate([
+            'kind' => 'required|in:product,combo',
+            'productId' => 'nullable|integer',
+            'baseId' => 'nullable|integer',
+            'coverId' => 'nullable|integer',
+            'qty' => 'required|integer|min:1',
+            'unitPrice' => 'required|numeric|min:0',
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        return DB::transaction(function () use ($transaction, $data) {
+            $tx = Transaction::lockForUpdate()->findOrFail($transaction->id);
+            $this->requireDeliveryStage($tx);
+            [$row] = $this->buildItems([$data + ['standardPrice' => $data['unitPrice']]]);
+            $li = $tx->items()->create($row);
+
+            $parts = $this->stockParts($li);
+            $take = $parts ? min($li->qty, ...array_map(fn ($m) => max(0, $m->stock_on_hand), $parts)) : 0;
+            if ($take > 0) {
+                foreach ($parts as $m) {
+                    $m->stock_on_hand -= $take;
+                    $m->save();
+                }
+                $li->update(['delivered_qty' => $take]);
+                Delivery::create([
+                    'transaction_id' => $tx->id, 'transaction_item_id' => $li->id, 'qty' => $take, 'type' => 'out',
+                    'note' => trim('Extra item, not on the offer. '.($data['note'] ?? '')),
+                    'delivered_on' => now()->toDateString(), 'user_id' => auth()->id(),
+                ]);
+            }
+            $this->settleDeliveryStage($tx->fresh('items'));
+
+            return response()->json(['ok' => true, 'delivered' => $take, 'waiting' => $li->qty - $take]);
+        });
+    }
+
+    private function requireDeliveryStage(Transaction $tx): void
+    {
+        if (! in_array($tx->status, ['Invoiced', 'Delivered'], true)) {
+            abort(response()->json(['message' => 'Returns and extra items are recorded once the deal is invoiced.'], 409));
+        }
+    }
+
+    /** The stock records a line draws on, locked: the product, or the base and the cover. */
+    private function stockParts($li): array
+    {
+        $parts = $li->kind === 'combo'
+            ? [Base::lockForUpdate()->find($li->base_id), Cover::lockForUpdate()->find($li->cover_id)]
+            : [Product::lockForUpdate()->find($li->product_id)];
+
+        return array_values(array_filter($parts));
+    }
+
+    /** Delivered once nothing is waiting; back to Invoiced while something still has to go out. */
+    private function settleDeliveryStage(Transaction $tx): void
+    {
+        $waiting = $tx->items->sum(fn ($li) => $li->remaining());
+        if ($waiting > 0 && $tx->status === 'Delivered') {
+            $tx->update(['status' => 'Invoiced', 'delivered_date' => null]);
+        } elseif ($waiting === 0 && $tx->status === 'Invoiced' && $tx->items->sum('delivered_qty') > 0) {
+            $tx->update(['status' => 'Delivered', 'delivered_date' => now()->toDateString()]);
+        }
+    }
+
     /** @return Milestone[] */
     private function saveMilestones(Transaction $tx, array $stages, int $start = 0): array
     {

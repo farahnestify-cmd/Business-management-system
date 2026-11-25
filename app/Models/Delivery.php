@@ -35,6 +35,8 @@ class Delivery extends Model
             'baseId' => self::sid($li?->base_id),
             'coverId' => self::sid($li?->cover_id),
             'qty' => (int) $this->qty,
+            'type' => $this->type ?: 'out',
+            'note' => (string) $this->note,
             'date' => self::d($this->delivered_on),
             'by' => (string) $this->user?->name,
         ];
