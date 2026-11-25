@@ -3053,6 +3053,23 @@ function monthReport(mk){
     if(monthKey(d)===mk) outRows.push({date:d, what:"Salary — "+(p.employeeName||""), kind:"Salary", amount:num(p.amount)});
   });
   var approved=state.transactions.filter(function(t){ return t.status!=="Cancelled" && monthKey(t.agreementDate)===mk; });
+  /* What falls due in the month: each payment stage with its date, or the balance of a deal without stages. */
+  var due=[], today=todayISO();
+  state.transactions.forEach(function(t){
+    if(!isLive(t) || t.status==="Quotation" || isSuperseded(t)) return;
+    var ms=t.milestones||[];
+    ms.forEach(function(m){
+      if(monthKey(m.dueDate)!==mk) return;
+      due.push({date:m.dueDate, t:t, what:m.label||"Payment stage", amount:toBase(t,m.amount), orig:inCur(t,m.amount),
+        status: m.paid ? "Received" : (m.dueDate<today ? "Overdue" : "Due")});
+    });
+    if(!ms.length && monthKey(t.dueDate)===mk){
+      var bal=txBalance(t);
+      due.push({date:t.dueDate, t:t, what:"Balance of the deal", amount:toBase(t,Math.max(0,bal)), orig:inCur(t,Math.max(0,bal)),
+        status: bal<=0.004 ? "Received" : (t.dueDate<today ? "Overdue" : "Due")});
+    }
+  });
+  due=sortBy(due, function(d){ return d.date; });
   var owed=state.transactions.filter(function(t){ return isLive(t) && txBalance(t)>0.004 && t.status!=="Quotation"; });
 
   var stock=[];
@@ -3079,12 +3096,16 @@ function monthReport(mk){
     cashIn:cashIn, cashOut:cashOut, net:cashIn-cashOut,
     approved:sortBy(approved, function(t){ return t.agreementDate; }), approvedTotal:sum(approved, baseOf(txTotal)),
     owed:sortBy(owed, function(t){ return -toBase(t, txBalance(t)); }), owedTotal:sum(owed, function(t){ return toBase(t, txBalance(t)); }),
-    stock:stock, pl:plForMonth(mk)
+    stock:stock, pl:plForMonth(mk),
+    due:due, dueOpen:sum(due.filter(function(d){ return d.status!=="Received"; }), function(d){ return d.amount; }),
+    dueAll:sum(due, function(d){ return d.amount; })
   };
 }
 function renderReports(){
   var sel=$("rep-month");
-  sel.innerHTML=monthKeys(24).reverse().map(function(k){ return '<option value="'+k+'"'+(k===state.repMonth?" selected":"")+'>'+esc(monthLabel(k))+'</option>'; }).join("");
+  /* The coming year is there too, to see what falls due ahead. */
+  var months=[]; for(var i=12;i>=-23;i--) months.push(addMonths(thisMonth(), i));
+  sel.innerHTML=months.map(function(k){ return '<option value="'+k+'"'+(k===state.repMonth?" selected":"")+'>'+esc(monthLabel(k))+'</option>'; }).join("");
   var R=monthReport(state.repMonth);
   $("rep-figs").innerHTML =
     figure("Received", usd(R.cashIn,0)) +
@@ -3100,6 +3121,14 @@ function renderReports(){
   $("rep-out").innerHTML = R.outRows.length ? R.outRows.map(function(r){
     return '<tr><td>'+fmtDate(r.date)+'</td><td>'+esc(r.what)+'</td><td class="tiny muted">'+esc(r.kind)+'</td><td class="num">'+usd(r.amount)+'</td></tr>';
   }).join("") : emptyRow(4,"Nothing paid out this month.");
+  var open=R.due.filter(function(d){ return d.status!=="Received"; }).length;
+  $("rep-due-sum").textContent=R.due.length+" due · "+open+" not paid yet · "+usd(R.dueOpen)+" to collect";
+  $("rep-due").innerHTML = R.due.length ? R.due.map(function(d){
+    var pill={Received:"good", Due:"info", Overdue:"bad"}[d.status];
+    return '<tr class="clickable" data-t="'+d.t.id+'"><td>'+fmtDate(d.date)+'</td><td>'+esc(d.t.clientName||"")+'</td><td class="mono tiny">'+esc(d.t.refNo)+'</td>'+
+      '<td>'+esc(d.what)+'</td><td><span class="pill '+pill+'">'+d.status+'</span></td>'+
+      '<td class="num'+(d.status==="Received"?" faint":" strong")+'">'+d.orig+(txCur(d.t)!=="USD" ? '<div class="tiny faint">'+usd(d.amount)+'</div>' : '')+'</td></tr>';
+  }).join("") : emptyRow(6,"Nothing falls due this month.");
   $("rep-approved-sum").textContent=R.approved.length+" offers · "+usd(R.approvedTotal);
   $("rep-approved").innerHTML = R.approved.length ? R.approved.map(function(t){
     return '<tr class="clickable" data-t="'+t.id+'"><td class="mono">'+esc(t.refNo)+'</td><td>'+esc(t.clientName||"")+'</td><td>'+fmtDate(t.agreementDate)+'</td><td>'+dealStage(t)+'</td>'+
@@ -3129,6 +3158,7 @@ $("rep-xlsx").addEventListener("click", function(){
         {"Line":"Received from clients ($)", "Value":r2(R.cashIn)},
         {"Line":"Paid out ($)", "Value":r2(R.cashOut)},
         {"Line":"Net cash, in − out ($)", "Value":r2(R.net)},
+        {"Line":"Due this month, not paid yet ($)", "Value":r2(R.dueOpen)},
         {"Line":"Approved offers (count)", "Value":R.approved.length},
         {"Line":"Approved offers ($)", "Value":r2(R.approvedTotal)},
         {"Line":"Still to collect today ($)", "Value":r2(R.owedTotal)},
@@ -3136,6 +3166,8 @@ $("rep-xlsx").addEventListener("click", function(){
         {"Line":"Profit after costs, expenses and salaries ($)", "Value":r2(R.pl.net)}]],
       ["Received", R.inRows.map(function(r){ return {"Date":r.date, "From":r.who, "Reference":r.ref, "Method":r.how, "Amount ($)":r2(r.amount), "Original":r.orig}; })],
       ["Paid out", R.outRows.map(function(r){ return {"Date":r.date, "What":r.what, "Kind":r.kind, "Amount ($)":r2(r.amount)}; })],
+      ["Due this month", R.due.map(function(d){ return {"Due on":d.date, "Client":d.t.clientName, "Reference":d.t.refNo, "For":d.what,
+        "Status":d.status, "Currency":txCur(d.t), "Amount":r2(d.amount*txRate(d.t)), "Amount ($)":r2(d.amount)}; })],
       ["Approved offers", R.approved.map(function(t){ return {"Reference":t.refNo, "Client":t.clientName, "Approved on":t.agreementDate, "Stage":t.status,
         "Currency":txCur(t), "Total":r2(txTotal(t)), "Total ($)":r2(toBase(t,txTotal(t))), "Still owed":r2(Math.max(0,txBalance(t)))}; })],
       ["Still to collect", R.owed.map(function(t){ return {"Reference":t.refNo, "Client":t.clientName, "Stage":t.status, "Currency":txCur(t),

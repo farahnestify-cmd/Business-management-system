@@ -336,6 +336,10 @@
           </div>
         </div>
         <div class="section">
+          <div class="section-head"><div><h2>Due this month</h2><p class="sub">Payment stages, and deal balances without stages, that fall due in the chosen month.</p></div><span class="tiny faint" id="rep-due-sum"></span></div>
+          <div class="panel"><div class="table-wrap"><table><thead><tr><th>Due on</th><th>Client</th><th>Reference</th><th>For</th><th>Status</th><th class="num">Amount</th></tr></thead><tbody id="rep-due"></tbody></table></div></div>
+        </div>
+        <div class="section">
           <div class="section-head"><div><h2>Approved offers</h2><p class="sub">Offers that became an agreement this month.</p></div><span class="tiny faint" id="rep-approved-sum"></span></div>
           <div class="panel"><div class="table-wrap"><table><thead><tr><th>Reference</th><th>Client</th><th>Approved on</th><th>Stage now</th><th class="num">Total</th><th class="num">Still owed</th></tr></thead><tbody id="rep-approved"></tbody></table></div></div>
         </div>
