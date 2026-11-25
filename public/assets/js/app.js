@@ -477,10 +477,11 @@ var VIEWS = {
   contacts:{title:"Contacts", action:{label:"Add contact", fn:function(){ editClient(null); }}},
   money:{title:"Money", action:{label:"Add expense", fn:function(){ editExpense(null); }}},
   team:{title:"Team", action:{label:"Add person", fn:function(){ editEmployee(null); }}},
+  reports:{title:"Monthly report", action:null},
   settings:{title:"Company settings", action:null}
 };
 function setView(name){
-  if(state.user && !isOwner() && (name==="money" || name==="team")) name="today";
+  if(state.user && !isOwner() && (name==="money" || name==="team" || name==="reports")) name="today";
   state.view = name;
   document.querySelectorAll(".view").forEach(function(v){ v.hidden = (v.id !== "view-"+name); });
   document.querySelectorAll(".nav-btn").forEach(function(b){ b.setAttribute("aria-current", String(b.dataset.view===name)); });
@@ -726,6 +727,7 @@ function render(){
   if(state.view==="contacts") renderContacts();
   if(state.view==="money") renderMoney();
   if(state.view==="team") renderTeam();
+  if(state.view==="reports") renderReports();
   if(state.view==="settings"){ renderSettings(); renderAccounts(); renderData(); }
   if(!$("composer").hidden) renderComposer();
 }
@@ -3026,6 +3028,125 @@ $("data-file").addEventListener("change", function(){
     .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if(!r.ok) throw new Error(j.message||"Could not restore"); return j; }); })
     .then(function(j){ return reload().then(function(){ toast("Restored: "+j.deals+" deals and "+j.contacts+" contacts"+(j.from ? " from "+fmtDate(j.from.slice(0,10)) : "")); }); })
     .catch(function(e){ toast(e.message, true); });
+});
+
+/* ============================================================
+   MONTHLY REPORT
+   ============================================================ */
+state.repMonth = thisMonth();
+/* Everything for one month, in US dollars: cash in and out, approved offers, what is owed, stock moves. */
+function monthReport(mk){
+  var inRows=[], outRows=[];
+  state.transactions.forEach(function(t){
+    normalizedPayments(t).forEach(function(p){
+      if(monthKey(p.date)!==mk) return;
+      var a=toBase(t, p.amount);
+      if(a>=0) inRows.push({date:p.date, who:t.clientName||"", ref:t.refNo, how:p.method||"", amount:a, orig:txCur(t)!=="USD" ? inCur(t,p.amount) : ""});
+      else outRows.push({date:p.date, what:"Refund — "+(t.clientName||""), kind:"Refund", amount:-a});
+    });
+  });
+  state.expenses.forEach(function(e){
+    if(monthKey(e.date)===mk) outRows.push({date:e.date, what:(e.description||e.category||"Expense")+(e.vendor?" — "+e.vendor:""), kind:e.category||"Expense", amount:num(e.amount)});
+  });
+  state.payroll.forEach(function(p){
+    var d=p.paidDate || (payrollMonthKey(p)+"-01");
+    if(monthKey(d)===mk) outRows.push({date:d, what:"Salary — "+(p.employeeName||""), kind:"Salary", amount:num(p.amount)});
+  });
+  var approved=state.transactions.filter(function(t){ return t.status!=="Cancelled" && monthKey(t.agreementDate)===mk; });
+  var owed=state.transactions.filter(function(t){ return isLive(t) && txBalance(t)>0.004 && t.status!=="Quotation"; });
+
+  var stock=[];
+  allStockRows().forEach(function(r){
+    var it=r.item, rec=0, back=0, out=0;
+    state.deliveries.forEach(function(d){
+      if(monthKey(d.date)!==mk || !lineUses(d, r.kind, it.id)) return;
+      if(d.type==="return") back+=num(d.qty); else out+=num(d.qty);
+    });
+    state.orders.forEach(function(o){
+      if(o.status!=="Received" || monthKey(o.receivedDate)!==mk) return;
+      (o.lines||[]).forEach(function(l){ if(l.kind===r.kind && l.itemId===it.id) rec+=num(l.qty); });
+    });
+    if(r.kind==="product") state.expenses.forEach(function(e){
+      if(e.linkedProductId===it.id && monthKey(e.date)===mk) rec+=num(e.qtyPurchased);
+    });
+    stock.push({kind:r.kind, name:it.name, received:rec, returned:back, delivered:out, net:rec+back-out, onHand:num(it.stockOnHand)});
+  });
+  stock=sortBy(stock, function(s){ return (s.received+s.returned+s.delivered ? "0" : "1")+s.name.toLowerCase(); });
+
+  var cashIn=sum(inRows, function(r){ return r.amount; }), cashOut=sum(outRows, function(r){ return r.amount; });
+  return {
+    inRows:sortBy(inRows, function(r){ return r.date; }), outRows:sortBy(outRows, function(r){ return r.date; }),
+    cashIn:cashIn, cashOut:cashOut, net:cashIn-cashOut,
+    approved:sortBy(approved, function(t){ return t.agreementDate; }), approvedTotal:sum(approved, baseOf(txTotal)),
+    owed:sortBy(owed, function(t){ return -toBase(t, txBalance(t)); }), owedTotal:sum(owed, function(t){ return toBase(t, txBalance(t)); }),
+    stock:stock, pl:plForMonth(mk)
+  };
+}
+function renderReports(){
+  var sel=$("rep-month");
+  sel.innerHTML=monthKeys(24).reverse().map(function(k){ return '<option value="'+k+'"'+(k===state.repMonth?" selected":"")+'>'+esc(monthLabel(k))+'</option>'; }).join("");
+  var R=monthReport(state.repMonth);
+  $("rep-figs").innerHTML =
+    figure("Received", usd(R.cashIn,0)) +
+    figure("Paid out", usd(R.cashOut,0)) +
+    figure("Net cash (in − out)", usd(R.net,0)) +
+    figure("Approved offers · "+R.approved.length, usd(R.approvedTotal,0)) +
+    figure("Still to collect", usd(R.owedTotal,0));
+  $("rep-in-sum").textContent=R.inRows.length+" payments · "+usd(R.cashIn);
+  $("rep-out-sum").textContent=R.outRows.length+" payments · "+usd(R.cashOut);
+  $("rep-in").innerHTML = R.inRows.length ? R.inRows.map(function(r){
+    return '<tr><td>'+fmtDate(r.date)+'</td><td>'+esc(r.who)+'<div class="tiny faint">'+esc(r.how)+(r.orig?' · '+esc(r.orig):'')+'</div></td><td class="mono tiny">'+esc(r.ref)+'</td><td class="num">'+usd(r.amount)+'</td></tr>';
+  }).join("") : emptyRow(4,"Nothing received this month.");
+  $("rep-out").innerHTML = R.outRows.length ? R.outRows.map(function(r){
+    return '<tr><td>'+fmtDate(r.date)+'</td><td>'+esc(r.what)+'</td><td class="tiny muted">'+esc(r.kind)+'</td><td class="num">'+usd(r.amount)+'</td></tr>';
+  }).join("") : emptyRow(4,"Nothing paid out this month.");
+  $("rep-approved-sum").textContent=R.approved.length+" offers · "+usd(R.approvedTotal);
+  $("rep-approved").innerHTML = R.approved.length ? R.approved.map(function(t){
+    return '<tr class="clickable" data-t="'+t.id+'"><td class="mono">'+esc(t.refNo)+'</td><td>'+esc(t.clientName||"")+'</td><td>'+fmtDate(t.agreementDate)+'</td><td>'+dealStage(t)+'</td>'+
+      '<td class="num">'+inCur(t,txTotal(t))+'</td><td class="num">'+(txBalance(t)>0.004?inCur(t,txBalance(t)):'<span class="faint">—</span>')+'</td></tr>';
+  }).join("") : emptyRow(6,"No offer was approved this month.");
+  $("rep-owed-sum").textContent=R.owed.length+" deals · "+usd(R.owedTotal);
+  $("rep-owed").innerHTML = R.owed.length ? R.owed.map(function(t){
+    return '<tr class="clickable" data-t="'+t.id+'"><td class="mono">'+esc(t.refNo)+'</td><td>'+esc(t.clientName||"")+'</td><td>'+dealStage(t)+'</td>'+
+      '<td class="num">'+inCur(t,txTotal(t))+'</td><td class="num">'+inCur(t,txPaid(t))+'</td><td class="num strong">'+inCur(t,txBalance(t))+'</td></tr>';
+  }).join("") : emptyRow(6,"Nobody owes anything.");
+  $("rep-stock").innerHTML = R.stock.length ? R.stock.map(function(s){
+    var z=function(v){ return v ? String(v) : '<span class="faint">—</span>'; };
+    return '<tr><td class="strong">'+esc(s.name)+'</td><td class="tiny muted">'+esc(s.kind)+'</td><td class="num">'+z(s.received)+'</td><td class="num">'+z(s.returned)+'</td>'+
+      '<td class="num">'+z(s.delivered)+'</td><td class="num">'+(s.net ? (s.net>0?"+":"−")+Math.abs(s.net) : '<span class="faint">—</span>')+'</td><td class="num strong">'+s.onHand+'</td></tr>';
+  }).join("") : emptyRow(7,"No stock items yet.");
+  $("view-reports").querySelectorAll("[data-t]").forEach(function(r){
+    r.addEventListener("click", function(){ setView("sales"); openTx(r.dataset.t); });
+  });
+}
+$("rep-month").addEventListener("change", function(){ state.repMonth=$("rep-month").value; renderReports(); });
+$("rep-xlsx").addEventListener("click", function(){
+  var btn=this, mk=state.repMonth, R=monthReport(mk); btn.disabled=true;
+  loadSheetLib().then(function(X){
+    var wb=X.utils.book_new();
+    var sheets=[
+      ["Summary", [
+        {"Line":"Received from clients ($)", "Value":r2(R.cashIn)},
+        {"Line":"Paid out ($)", "Value":r2(R.cashOut)},
+        {"Line":"Net cash, in − out ($)", "Value":r2(R.net)},
+        {"Line":"Approved offers (count)", "Value":R.approved.length},
+        {"Line":"Approved offers ($)", "Value":r2(R.approvedTotal)},
+        {"Line":"Still to collect today ($)", "Value":r2(R.owedTotal)},
+        {"Line":"Sales invoiced ($)", "Value":r2(R.pl.sales)},
+        {"Line":"Profit after costs, expenses and salaries ($)", "Value":r2(R.pl.net)}]],
+      ["Received", R.inRows.map(function(r){ return {"Date":r.date, "From":r.who, "Reference":r.ref, "Method":r.how, "Amount ($)":r2(r.amount), "Original":r.orig}; })],
+      ["Paid out", R.outRows.map(function(r){ return {"Date":r.date, "What":r.what, "Kind":r.kind, "Amount ($)":r2(r.amount)}; })],
+      ["Approved offers", R.approved.map(function(t){ return {"Reference":t.refNo, "Client":t.clientName, "Approved on":t.agreementDate, "Stage":t.status,
+        "Currency":txCur(t), "Total":r2(txTotal(t)), "Total ($)":r2(toBase(t,txTotal(t))), "Still owed":r2(Math.max(0,txBalance(t)))}; })],
+      ["Still to collect", R.owed.map(function(t){ return {"Reference":t.refNo, "Client":t.clientName, "Stage":t.status, "Currency":txCur(t),
+        "Total":r2(txTotal(t)), "Paid":r2(txPaid(t)), "Owed":r2(txBalance(t)), "Owed ($)":r2(toBase(t,txBalance(t)))}; })],
+      ["Stock", R.stock.map(function(s){ return {"Item":s.name, "Kind":s.kind, "Received":s.received, "Returned":s.returned, "Delivered":s.delivered, "Net change":s.net, "On hand now":s.onHand}; })]
+    ];
+    sheets.forEach(function(sh){
+      X.utils.book_append_sheet(wb, sh[1].length ? X.utils.json_to_sheet(sh[1]) : X.utils.aoa_to_sheet([["Nothing this month"]]), sh[0]);
+    });
+    X.writeFile(wb, "nestify-report-"+mk+".xlsx");
+  }).catch(function(e){ toast(e.message, true); }).then(function(){ btn.disabled=false; });
 });
 
 /* Spreadsheet: built in the browser from what the page already holds. */

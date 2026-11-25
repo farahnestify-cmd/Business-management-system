@@ -35,6 +35,9 @@
       <button class="nav-btn" data-view="money" data-need="owner">
         <svg viewBox="0 0 20 20"><path d="M3 6.5h14v9H3z"/><path d="M3 9.5h14"/><circle cx="13.5" cy="12.8" r="1.1"/></svg><span class="label">Money</span><span class="nav-count" id="nav-count-money"></span>
       </button>
+      <button class="nav-btn" data-view="reports" data-need="owner">
+        <svg viewBox="0 0 20 20"><path d="M4 16V9M8.7 16V5M13.3 16v-5M18 16H2"/></svg><span class="label">Reports</span><span class="nav-count"></span>
+      </button>
       <button class="nav-btn" data-view="team" data-need="owner">
         <svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3"/><path d="M4.5 16.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/></svg><span class="label">Team</span><span class="nav-count" id="nav-count-team"></span>
       </button>
@@ -313,6 +316,36 @@
               <tbody id="ledger-body"></tbody>
             </table></div></div>
           </div>
+        </div>
+      </section>
+
+      <!-- ============ REPORTS ============ -->
+      <section class="view" id="view-reports" hidden>
+        <div class="section-head" style="margin-bottom:14px">
+          <div class="field" style="min-width:220px; margin:0"><label for="rep-month">Month</label><select id="rep-month"></select></div>
+          <button class="btn sm" type="button" id="rep-xlsx">Download this report (Excel)</button>
+        </div>
+        <div class="figures" id="rep-figs"></div>
+        <div class="section">
+          <div class="section-head"><div><h2>Money in and out</h2><p class="sub">Cash that actually moved this month, in US dollars.</p></div></div>
+          <div class="split">
+            <div class="panel"><div class="panel-head"><h3>Received</h3><span class="tiny faint" id="rep-in-sum"></span></div>
+              <div class="table-wrap"><table><thead><tr><th>Date</th><th>From</th><th>Reference</th><th class="num">Amount</th></tr></thead><tbody id="rep-in"></tbody></table></div></div>
+            <div class="panel"><div class="panel-head"><h3>Paid out</h3><span class="tiny faint" id="rep-out-sum"></span></div>
+              <div class="table-wrap"><table><thead><tr><th>Date</th><th>What</th><th>Kind</th><th class="num">Amount</th></tr></thead><tbody id="rep-out"></tbody></table></div></div>
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-head"><div><h2>Approved offers</h2><p class="sub">Offers that became an agreement this month.</p></div><span class="tiny faint" id="rep-approved-sum"></span></div>
+          <div class="panel"><div class="table-wrap"><table><thead><tr><th>Reference</th><th>Client</th><th>Approved on</th><th>Stage now</th><th class="num">Total</th><th class="num">Still owed</th></tr></thead><tbody id="rep-approved"></tbody></table></div></div>
+        </div>
+        <div class="section">
+          <div class="section-head"><div><h2>Still to collect</h2><p class="sub">What clients owe today on deals that are not cancelled.</p></div><span class="tiny faint" id="rep-owed-sum"></span></div>
+          <div class="panel"><div class="table-wrap"><table><thead><tr><th>Reference</th><th>Client</th><th>Stage</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Owed</th></tr></thead><tbody id="rep-owed"></tbody></table></div></div>
+        </div>
+        <div class="section">
+          <div class="section-head"><div><h2>Stock this month</h2><p class="sub">Received from suppliers, returned by clients and delivered out during the month, next to what is on the shelf today.</p></div></div>
+          <div class="panel"><div class="table-wrap"><table><thead><tr><th>Item</th><th>Kind</th><th class="num">Received</th><th class="num">Returned</th><th class="num">Delivered</th><th class="num">Net change</th><th class="num">On hand now</th></tr></thead><tbody id="rep-stock"></tbody></table></div></div>
         </div>
       </section>
 

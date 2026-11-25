@@ -457,3 +457,5 @@ html:not([data-role="owner"]) .c-cost{display:none!important}
 .mrow-x{grid-template-columns:2fr 1.5fr 70px 110px 36px}
 .mrow-head span{font-size:10.5px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--faint, #8B928B)}
 @media (max-width:720px){ .mrow-r,.mrow-x{grid-template-columns:1fr 1fr} .mrow-head{display:none} }
+#rep-figs{grid-template-columns:repeat(5,1fr)}
+@media (max-width:1000px){ #rep-figs{grid-template-columns:repeat(2,1fr)} }
