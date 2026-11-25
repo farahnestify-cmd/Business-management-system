@@ -516,6 +516,7 @@
         <div class="field"><label for="of-site">Site or project</label><input id="of-site" type="text" placeholder="Villa 12, Rawabi"></div>
         <div class="field"><label for="of-seller">Sold by</label><input id="of-seller" type="text" list="seller-list" placeholder="Who is handling this" autocomplete="off"><datalist id="seller-list"></datalist></div>
       </div>
+      <div class="field"><label for="of-table-title">Heading over the items table (printed)</label><input id="of-table-title" type="text" placeholder="Curved tempered glass &amp; aluminium frame — Matte / Glossy finish"></div>
       <div class="field"><label for="of-notes">Notes on the offer</label><input id="of-notes" type="text" placeholder="Scope, floors covered, delivery expectations…"></div>
     </div>
   </div>

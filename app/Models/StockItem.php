@@ -14,13 +14,25 @@ abstract class StockItem extends Model
     protected $guarded = [];
 
     /** Maps the kind used by the frontend to its model class. */
+    public const KINDS = [
+        'product' => Product::class,
+        'base' => Base::class,
+        'cover' => Cover::class,
+    ];
+
     public static function classFor(string $kind): ?string
     {
-        return [
-            'product' => Product::class,
-            'base' => Base::class,
-            'cover' => Cover::class,
-        ][$kind] ?? null;
+        return self::KINDS[$kind] ?? null;
+    }
+
+    /** The picture itself, decoded from the stored data URL. */
+    public function imageResponse()
+    {
+        if (! $this->image_data || ! preg_match('#^data:(image/(?:png|jpeg|webp));base64,(.+)$#s', $this->image_data, $m)) {
+            abort(404);
+        }
+
+        return response(base64_decode($m[2]), 200, ['Content-Type' => $m[1], 'Cache-Control' => 'private, max-age=31536000']);
     }
 
     protected function common(): array
@@ -33,6 +45,8 @@ abstract class StockItem extends Model
             'stockOnHand' => (int) $this->stock_on_hand,
             'reorderThreshold' => (int) $this->reorder_threshold,
             'notes' => (string) $this->notes,
+            'image' => $this->image_data
+                ? url('/api/images/'.array_search(static::class, self::KINDS).'/'.$this->id).'?v='.substr(md5($this->image_data), 0, 10) : '',
         ];
     }
 

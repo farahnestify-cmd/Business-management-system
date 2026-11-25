@@ -565,6 +565,7 @@ function openForm(title, groups, onSave, onDelete){
   $("form-body").innerHTML = groups.map(function(g){
     if(g.heading) return '<p class="eyebrow" style="margin-top:4px">'+esc(g.heading)+'</p>';
     if(g.note) return '<p class="tiny muted">'+esc(g.note)+'</p>';
+    if(g.html) return g.html;
     var fields=g.fields.filter(Boolean); /* a field can be left out for a role */
     var cols = fields.length>=3 ? "g3" : (fields.length===2 ? "g2" : "");
     return '<div class="grid '+cols+'">' + fields.map(fieldHtml).join("") + '</div>';
@@ -1124,6 +1125,7 @@ function openComposer(tx, mode){
   $("of-paid").value=0;
   $("of-notes").value = src ? (src.notes||"") : "";
   $("of-site").value = src ? (src.site||"") : "";
+  $("of-table-title").value = src ? (src.tableTitle||"") : "";
   /* New offers are stamped with whoever writes them; anyone can be named instead. */
   $("of-seller").value = src ? (src.soldBy||"") : (state.user ? state.user.name : "");
   var names={};
@@ -1172,7 +1174,7 @@ function saveDraft(){
     window.localStorage.setItem(draftKey(), JSON.stringify({savedAt:new Date().toISOString(),
       offer:{mode:state.offer.mode, reviseOf:state.offer.reviseOf, setId:state.offer.setId||"", lines:state.offer.lines, milestones:state.offer.milestones||[],
         paidStages:state.offer.paidStages||[], ref:state.offer.ref||"", currency:state.offer.currency||"USD", fxRate:state.offer.fxRate||1},
-      fields:{client:val("of-client"), region:val("of-region"), date:val("of-date"), site:val("of-site"), seller:val("of-seller"),
+      fields:{client:val("of-client"), region:val("of-region"), date:val("of-date"), site:val("of-site"), tableTitle:val("of-table-title"), seller:val("of-seller"),
         paid:val("of-paid"), method:val("of-method"), due:val("of-due"), notes:val("of-notes"), type:radioVal("oftype"), service:radioVal("ofservice")}}));
   }catch(e){}
 }
@@ -1192,7 +1194,7 @@ function restoreDraft(d){
     currency:o.currency||"USD", fxRate:num(o.fxRate)||1};
   fillCurrencySelect();
   $("of-client").value=f.client||""; $("of-region").value=f.region||"West Bank"; $("of-date").value=f.date||todayISO();
-  $("of-site").value=f.site||""; $("of-seller").value=f.seller||""; $("of-paid").value=f.paid||0; $("of-method").value=f.method||"Cash";
+  $("of-site").value=f.site||""; $("of-table-title").value=f.tableTitle||""; $("of-seller").value=f.seller||""; $("of-paid").value=f.paid||0; $("of-method").value=f.method||"Cash";
   $("of-due").value=f.due||""; $("of-notes").value=f.notes||"";
   setRadio("oftype", f.type||"Direct"); setRadio("ofservice", f.service||"With Programming");
   $("of-paid-wrap").hidden = $("of-method-wrap").hidden = asRevision;
@@ -1555,7 +1557,7 @@ $("of-save").addEventListener("click", function(){
   var data={
     clientId:ctx.client.id, region:ctx.region, dealType:ctx.type, serviceType:ctx.service,
     date:ctx.date, dueDate:val("of-due") || null, notes:val("of-notes"),
-    site:val("of-site"), soldBy:val("of-seller"),
+    site:val("of-site"), tableTitle:val("of-table-title"), soldBy:val("of-seller"),
     paid:paid, method:val("of-method"), setId:state.offer.setId||null,
     currency:ctx.currency, fxRate:ctx.rate,
     milestones:(state.offer.milestones||[]).filter(function(m){ return num(m.amount)>0; })
@@ -1614,6 +1616,14 @@ function curWording(t, text){
   return text.replace(/\bUSD\b/g, cur).replace(/\bUS dollars\b/gi, name);
 }
 function openDoc(t, kind){ return withCur(txCur(t), function(){ return openDocIn(t, kind); }); }
+/* Whole amounts print without cents ($90), others with them ($90.50). */
+function docMoney(v){ var n=num(v); return money(n, Math.abs(n-Math.round(n))<0.005 ? 0 : 2); }
+/* A line's picture: the product's, or for a base + cover the cover's (its colour), else the base's. */
+function lineImage(li){
+  if(li.kind==="service") return "";
+  if(li.kind==="combo"){ var c=coverById(li.coverId), b=baseById(li.baseId); return (c&&c.image) || (b&&b.image) || ""; }
+  var p=productById(li.productId); return (p&&p.image) || "";
+}
 function openDocIn(t, kind){
   docState.t=t; docState.kind=kind;
   var s=state.settings;
@@ -1627,25 +1637,35 @@ function openDocIn(t, kind){
   terms = curWording(t, String(terms||"").replace("{validity}", num(s.validityDays)));
 
   var isNote = kind==="Delivery Note";
-  var rows=(t.lineItems||[]).filter(function(li){ return !(isNote && li.kind==="service"); }).map(function(li){
-    if(isNote) return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+'</td><td class="num">'+num(li.deliveredQty)+'</td><td class="num">'+(lineLeft(li)||"—")+'</td></tr>';
-    if(num(li.qty)===0) return '<tr><td>'+esc(li.name)+' <span style="color:#8B928B">· optional</span></td><td class="num">—</td>'+
-      (showMoney ? '<td class="num">'+money(li.unitPrice)+'</td><td class="num" style="color:#8B928B">optional</td>' : '')+'</tr>';
-    return '<tr><td>'+esc(li.name)+'</td><td class="num">'+num(li.qty)+(li.unit ? ' '+esc(li.unit) : '')+'</td>'+
-      (showMoney ? '<td class="num">'+money(li.unitPrice)+'</td><td class="num">'+money(num(li.qty)*num(li.unitPrice))+'</td>' : '')+
-      '</tr>';
+  var lines=(t.lineItems||[]).filter(function(li){ return !(isNote && li.kind==="service"); });
+  /* The Image column only appears when at least one line has a picture. */
+  var withPics = lines.some(function(li){ return !!lineImage(li); });
+  var code=txCur(t);
+  var cols = isNote ? 5+(withPics?1:0) : 5+(withPics?1:0);
+  var title = t.tableTitle ? '<tr class="d-ttl"><th colspan="'+cols+'">'+esc(t.tableTitle)+'</th></tr>' : '';
+  var head = '<tr><th class="c">Item</th><th>Description</th>'+(withPics?'<th class="c">Image</th>':'')+
+    (isNote ? '<th class="c">Ordered</th><th class="c">Delivered</th><th class="c">Still to come</th>'
+      : '<th class="c">Quantity</th><th class="c">Unit Price ('+esc(code)+')</th><th class="c">Amount ('+esc(code)+')</th>')+'</tr>';
+  var rows=lines.map(function(li, i){
+    var pic = withPics ? '<td class="c pic">'+(lineImage(li) ? '<img src="'+esc(lineImage(li))+'" alt="">' : '')+'</td>' : '';
+    var start = '<td class="c">'+(i+1)+'</td><td>'+esc(li.name)+'</td>'+pic;
+    if(isNote) return '<tr>'+start+'<td class="c">'+num(li.qty)+'</td><td class="c">'+num(li.deliveredQty)+'</td><td class="c">'+(lineLeft(li)||"—")+'</td></tr>';
+    if(num(li.qty)===0) return '<tr class="opt">'+start+'<td class="c">optional</td><td class="c">'+docMoney(li.unitPrice)+'</td><td class="c">—</td></tr>';
+    return '<tr>'+start+'<td class="c">'+num(li.qty)+(li.unit ? ' '+esc(li.unit) : '')+'</td>'+
+      '<td class="c">'+docMoney(li.unitPrice)+'</td><td class="c">'+docMoney(num(li.qty)*num(li.unitPrice))+'</td></tr>';
   }).join("");
 
   var pays=normalizedPayments(t);
+  var vat=num(t.vatPct)>0;
+  var totRow=function(label, value, strong){ return '<tr'+(strong?' class="g"':'')+'><td>'+label+'</td><td class="c">'+value+'</td></tr>'; };
   var totals = showMoney ?
-    '<div class="d-tot">'+
-      '<div class="r"><span>Total quantity</span><span>'+sum((t.lineItems||[]).filter(function(li){ return li.kind!=="service"; }), function(li){ return li.qty; })+'</span></div>'+
-      '<div class="r"><span>Subtotal</span><span>'+money(txSubtotal(t))+'</span></div>'+
-      (num(t.vatPct)>0 ? '<div class="r"><span>VAT '+num(t.vatPct)+'%</span><span>'+money(txVat(t))+'</span></div>' : '')+
-      '<div class="r g"><span>'+(kind==="Receipt"?"Invoice total":"Total")+'</span><span>'+money(txTotal(t))+'</span></div>'+
-      (kind!=="Quotation" ? '<div class="r"><span>Paid to date</span><span>'+money(txPaid(t))+'</span></div>'+
-        '<div class="r"><span>Balance due</span><span>'+money(txBalance(t))+'</span></div>' : '')+
-    '</div>' : '';
+    '<table class="d-tot2"><tbody>'+
+      totRow("Total Qtys", sum(lines.filter(function(li){ return li.kind!=="service"; }), function(li){ return li.qty; }))+
+      (vat ? totRow("Subtotal ("+esc(code)+") (Excl. VAT)", docMoney(txSubtotal(t)))+totRow("VAT "+num(t.vatPct)+"%", docMoney(txVat(t)))+
+          totRow((kind==="Receipt"?"Invoice total":"Total Price")+" ("+esc(code)+") (Incl. VAT)", docMoney(txTotal(t)), true)
+        : totRow((kind==="Receipt"?"Invoice total":"Total Price")+" ("+esc(code)+") (Excl. VAT)", docMoney(txTotal(t)), true))+
+      (kind!=="Quotation" ? totRow("Paid to date", docMoney(txPaid(t)))+totRow("Balance due", docMoney(txBalance(t)), true) : '')+
+    '</tbody></table>' : '';
 
   var sheet =
     '<div class="d-top">'+
@@ -1661,9 +1681,7 @@ function openDocIn(t, kind){
       '<div><div class="k">'+(kind==="Quotation"?"Valid until":"Reference")+'</div><div class="v">'+
         (kind==="Quotation" ? fmtDate(addDays(txDocDate(t), num(s.validityDays))) : esc(t.refNo))+'</div></div>'+
     '</div>'+
-    '<table><thead><tr><th>Item</th>'+(isNote ? '<th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Still to come</th>'
-      : '<th class="num">Qty</th>'+(showMoney?'<th class="num">Unit</th><th class="num">Amount</th>':''))+'</tr></thead>'+
-      '<tbody>'+rows+'</tbody></table>'+
+    '<table class="d-items"><thead>'+title+head+'</thead><tbody>'+rows+'</tbody></table>'+
     totals+
     ((kind==="Agreement" || kind==="Invoice") && (t.milestones||[]).length ?
       '<table style="margin-top:24px"><thead><tr><th>Payment stage</th><th>Due</th><th class="num">Amount</th></tr></thead><tbody>'+
@@ -1959,6 +1977,17 @@ function editStock(kind, item){
     {id:"f-stock", label:"On hand", type:"number", step:"1", value:num(d.stockOnHand)},
     {id:"f-reorder", label:"Reorder at", type:"number", step:"1", value:num(d.reorderThreshold)}]});
   if(costsVisible()) groups.push({note:"Cost drives every margin figure in the system. Leave it at zero and margins stay blank."});
+  groups.push({heading:"Picture — printed in the Image column of offers"});
+  groups.push({html:'<div class="brand-box" id="f-pic-box"></div><input type="file" id="f-pic-file" accept="image/png,image/jpeg,image/webp" hidden>'});
+  var picture; /* undefined: keep what is stored; "": remove it; a data URL: the new one */
+  function drawPicture(){
+    var src = picture!==undefined ? picture : (d.image||"");
+    $("f-pic-box").innerHTML = (src ? '<img src="'+esc(src)+'" alt="">' : '<span class="tiny faint">No picture</span>')+
+      '<button class="btn sm" type="button" id="f-pic-pick">'+(src?"Change":"Choose a picture")+'</button>'+
+      (src ? '<button class="btn quiet sm" type="button" id="f-pic-rm">Remove</button>' : '');
+    $("f-pic-pick").addEventListener("click", function(){ $("f-pic-file").value=""; $("f-pic-file").click(); });
+    if($("f-pic-rm")) $("f-pic-rm").addEventListener("click", function(){ picture=""; drawPicture(); });
+  }
 
   openForm((isNew?"Add ":"Edit ")+titleMap[kind], groups, function(){
     if(!val("f-name")){ toast("Give it a name first", true); return false; }
@@ -1975,10 +2004,38 @@ function editStock(kind, item){
       data.dealerPrice48=valNum("f-d48"); data.endUserPrice48=valNum("f-e48");
       data.programmingFee=valNum("f-prog");
     }
+    if(picture!==undefined) data.imageData = picture || null;
     var col = kind==="product" ? "products" : (kind==="base" ? "bases" : "covers");
     save(col, isNew?null:item.id, data, function(){ toast("Saved"); });
   }, isNew ? null : function(){
     remove(kind==="product" ? "products" : (kind==="base" ? "bases" : "covers"), item.id, item.name);
+  });
+  drawPicture();
+  $("f-pic-file").addEventListener("change", function(){
+    var f=this.files && this.files[0]; if(!f) return;
+    shrinkPicture(f, 400).then(function(url){ picture=url; drawPicture(); })
+      .catch(function(){ toast("Could not read that picture", true); });
+  });
+}
+
+/* Pictures are scaled down in the browser before they are saved, so offers stay light. */
+function shrinkPicture(file, max){
+  return new Promise(function(ok, fail){
+    var r=new FileReader();
+    r.onerror=fail;
+    r.onload=function(){
+      var img=new Image();
+      img.onerror=fail;
+      img.onload=function(){
+        var k=Math.min(1, max/Math.max(img.width, img.height));
+        var c=document.createElement("canvas");
+        c.width=Math.max(1, Math.round(img.width*k)); c.height=Math.max(1, Math.round(img.height*k));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        ok(c.toDataURL("image/png"));
+      };
+      img.src=r.result;
+    };
+    r.readAsDataURL(file);
   });
 }
 

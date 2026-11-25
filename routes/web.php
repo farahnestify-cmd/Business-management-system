@@ -25,6 +25,7 @@ Route::middleware('auth')->group(function () {
     Route::prefix('api')->group(function () {
         Route::get('bootstrap', BootstrapController::class);
         Route::get('brand/{which}', [SettingsController::class, 'image'])->whereIn('which', ['logo', 'hero']);
+        Route::get('images/{kind}/{id}', [RecordController::class, 'image'])->whereIn('kind', ['product', 'base', 'cover'])->whereNumber('id');
 
         Route::post('transactions', [SalesController::class, 'store']);
         Route::post('transactions/{transaction}/payments', [SalesController::class, 'pay']);

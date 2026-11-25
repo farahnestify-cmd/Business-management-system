@@ -390,6 +390,20 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 #doc .d-tot .r{display:flex; justify-content:space-between; font-size:12px}
 #doc .d-tot .r span:last-child{font-family:var(--f-mono); font-variant-numeric:tabular-nums}
 #doc .d-tot .r.g{font-size:15px; font-weight:600; border-top:1px solid #161A16; padding-top:8px; margin-top:4px}
+/* The items table on printed documents: a grey heading row, ruled lines, centred figures. */
+#doc table.d-items{font-size:10.5px; border:1px solid #CFCFCF}
+#doc table.d-items th, #doc table.d-items td{padding:8px 8px; border-bottom:1px solid #DCDCDC; vertical-align:middle; text-align:left}
+#doc table.d-items .c{text-align:center}
+#doc table.d-items thead th{color:#161A16; font-size:9.5px; font-weight:600; letter-spacing:0; text-transform:none; border-bottom:1px solid #9A9A9A; background:#FFFFFF}
+#doc table.d-items tr.d-ttl th{background:#E4E4E4; text-align:center; font-size:12px; font-weight:500; padding:10px 8px; border-bottom:1px solid #CFCFCF}
+#doc table.d-items td:nth-child(2){font-weight:500}
+#doc table.d-items td.pic{padding:4px 6px}
+#doc table.d-items td.pic img{max-height:30px; max-width:80px; object-fit:contain; display:inline-block; vertical-align:middle}
+#doc table.d-items tr.opt td{font-style:italic; color:#6A716A}
+#doc table.d-tot2{width:62%; margin:0 0 0 auto; font-size:10.5px; border:1px solid #CFCFCF; border-top:none}
+#doc table.d-tot2 td{padding:9px 10px; border-bottom:1px solid #DCDCDC; border-left:1px solid #DCDCDC; font-weight:500}
+#doc table.d-tot2 td.c{text-align:center; width:38%}
+#doc table.d-tot2 tr.g td{font-weight:700; font-size:11.5px}
 #doc .d-note{margin-top:30px; padding-top:14px; border-top:1px solid #E8EAE7; font-size:10.5px; color:#6A716A; line-height:1.6; white-space:pre-wrap}
 #doc .d-sign{display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:38px}
 #doc .d-sign div{border-top:1px solid #161A16; padding-top:7px; font-size:9.5px; letter-spacing:.11em; text-transform:uppercase; color:#6A716A}

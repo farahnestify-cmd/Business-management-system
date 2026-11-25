@@ -101,6 +101,7 @@ class Transaction extends Model
             'dueDate' => self::d($this->due_date),
             'notes' => (string) $this->notes,
             'site' => (string) $this->site,
+            'tableTitle' => (string) $this->table_title,
             'soldBy' => (string) $this->sold_by,
             'createdBy' => self::sid($this->created_by),
             'createdByName' => (string) $this->creator?->name,

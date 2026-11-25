@@ -11,6 +11,7 @@ use App\Models\Employee;
 use App\Models\PriceTier;
 use App\Models\Product;
 use App\Models\Service;
+use App\Models\StockItem;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\TransactionItem;
@@ -58,12 +59,15 @@ class RecordController extends Controller
                 'notes' => ['notes', 'nullable|string|max:5000'],
             ]],
             'products' => [Product::class, 'manager', $name + [
+                'imageData' => ['image_data', 'nullable|string|max:3000000'],
                 'category' => ['category', 'required|string|max:40'],
             ] + self::PRICE_BOOK + self::STOCK],
             'bases' => [Base::class, 'manager', $name + [
+                'imageData' => ['image_data', 'nullable|string|max:3000000'],
                 'line' => ['line', 'nullable|string|max:40'],
             ] + self::PRICE_BOOK + self::STOCK],
             'covers' => [Cover::class, 'manager', $name + [
+                'imageData' => ['image_data', 'nullable|string|max:3000000'],
                 'line' => ['line', 'nullable|string|max:40'],
                 'color' => ['color', 'nullable|string|max:60'],
                 'finish' => ['finish', 'required|in:Glossy,Matte'],
@@ -104,6 +108,12 @@ class RecordController extends Controller
         };
     }
 
+    /** A stock item's picture, for the Image column of printed offers. */
+    public function image(string $kind, int $id)
+    {
+        return StockItem::classFor($kind)::findOrFail($id)->imageResponse();
+    }
+
     public function store(Request $request, string $collection)
     {
         [$class, , $fields] = $this->guard($request, $collection);
@@ -112,6 +122,7 @@ class RecordController extends Controller
         if ($collection === 'currencies') {
             $this->uniqueCode($model);
         }
+        $this->checkImage($model);
         $model->save();
 
         return response()->json(['id' => (string) $model->id], 201);
@@ -125,6 +136,7 @@ class RecordController extends Controller
         if ($collection === 'currencies') {
             $this->uniqueCode($model);
         }
+        $this->checkImage($model);
         $model->save();
 
         return response()->json(['id' => (string) $model->id]);
@@ -148,6 +160,15 @@ class RecordController extends Controller
         DB::transaction(fn () => RecycleBin::trash($kind, $model, $model->name));
 
         return response()->json(['ok' => true, 'undo' => RecycleBin::$lastUndo]);
+    }
+
+    /** Only a PNG, JPG or WebP data URL is kept as an item's picture. */
+    private function checkImage(Model $model): void
+    {
+        $data = $model->getAttribute('image_data');
+        if ($data && ! preg_match('#^data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$#', $data)) {
+            throw ValidationException::withMessages(['imageData' => 'Choose a PNG, JPG or WebP picture.']);
+        }
     }
 
     private function uniqueCode(Model $currency): void
