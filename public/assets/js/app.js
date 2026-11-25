@@ -2390,7 +2390,7 @@ function editStock(kind, item){
   if(kind==="base" && (state.coverTypes||[]).length){
     typePics={};
     (state.coverTypes||[]).forEach(function(ct){ typePics[ct.code]=((d.typeImages||{})[ct.code]||[]).slice(); });
-    groups.push({heading:"Pictures in the offer, for each cover type (up to 4)"});
+    groups.push({heading:"This base's pictures in the offer — one set for each cover type (up to 4 each)"});
     groups.push({html:'<div id="f-tpics"></div><input type="file" id="f-tpic-file" accept="image/png,image/jpeg,image/webp" multiple hidden>'});
   }
   var picsChanged=false, picFor=null;
