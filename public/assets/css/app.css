@@ -265,7 +265,13 @@ input.mono,select.mono{font-family:var(--f-mono)}
 .sheet-foot{display:flex; justify-content:flex-end; gap:8px; padding:14px 22px; border-top:1px solid var(--line); background:var(--surface-2)}
 
 /* Drawer (record detail) */
-.drawer{margin:0 0 0 auto; height:100%; width:min(560px,100%); border-radius:0; display:flex; flex-direction:column}
+/* The side panel: drag its left edge to any width (kept for next time), or expand it. */
+.drawer{margin:0 0 0 auto; height:100%; max-width:none; width:min(var(--drawer-w, 560px),100%); border-radius:0; display:flex; flex-direction:column; position:relative}
+.drawer-grip{position:absolute; left:-4px; top:0; bottom:0; width:10px; cursor:ew-resize; z-index:2}
+.drawer-grip::after{content:""; position:absolute; left:3px; top:50%; width:4px; height:44px; margin-top:-22px; border-radius:2px; background:var(--line-strong, #C9CDC8); opacity:.8}
+.drawer-grip:hover::after, body.resizing .drawer-grip::after{background:var(--accent, #2F3A32); opacity:1}
+body.resizing{cursor:ew-resize; user-select:none}
+@media (max-width:720px){ .drawer-grip, #drawer-wide{display:none} }
 .drawer .sheet-body{max-height:none; flex:1}
 
 /* Composer (full-screen) */

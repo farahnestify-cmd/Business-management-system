@@ -646,7 +646,9 @@
 
 <div class="overlay" id="drawer-overlay" hidden>
   <div class="sheet drawer" id="drawer">
-    <div class="sheet-head"><h3 id="drawer-title">Record</h3><button class="btn quiet sm" type="button" id="drawer-close">Close</button></div>
+    <div class="drawer-grip" id="drawer-grip" title="Drag to make the panel wider or narrower" aria-hidden="true"></div>
+    <div class="sheet-head"><h3 id="drawer-title">Record</h3>
+      <div style="display:flex; gap:4px"><button class="btn quiet sm" type="button" id="drawer-wide" title="Full width">Expand</button><button class="btn quiet sm" type="button" id="drawer-close">Close</button></div></div>
     <div class="sheet-body" id="drawer-body"></div>
   </div>
 </div>

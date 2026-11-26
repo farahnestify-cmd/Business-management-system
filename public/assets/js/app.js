@@ -622,6 +622,33 @@ function openDrawer(title, html){
 }
 function closeDrawer(){ $("drawer-overlay").hidden = true; }
 $("drawer-close").addEventListener("click", closeDrawer);
+/* Width of the side panel: dragged by its left edge, remembered in this browser. */
+(function(){
+  var KEY="nestify.drawer.width", min=420;
+  function maxW(){ return Math.max(min, window.innerWidth-40); }
+  function setW(w, keep){
+    w=Math.round(Math.min(maxW(), Math.max(min, w)));
+    document.documentElement.style.setProperty("--drawer-w", w+"px");
+    $("drawer-wide").textContent = w>=maxW()-2 ? "Narrow" : "Expand";
+    if(keep) try{ localStorage.setItem(KEY, String(w)); }catch(e){}
+  }
+  var saved=0; try{ saved=Number(localStorage.getItem(KEY))||0; }catch(e){}
+  if(saved) setW(saved, false);
+  var dragging=false;
+  $("drawer-grip").addEventListener("pointerdown", function(e){
+    dragging=true; document.body.classList.add("resizing"); this.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  $("drawer-grip").addEventListener("pointermove", function(e){ if(dragging) setW(window.innerWidth-e.clientX, false); });
+  $("drawer-grip").addEventListener("pointerup", function(){
+    if(!dragging) return; dragging=false; document.body.classList.remove("resizing");
+    setW(parseInt(getComputedStyle(document.documentElement).getPropertyValue("--drawer-w"))||560, true);
+  });
+  $("drawer-wide").addEventListener("click", function(){
+    var now=$("drawer").getBoundingClientRect().width;
+    setW(now>=maxW()-2 ? 560 : maxW(), true);
+  });
+  window.addEventListener("resize", function(){ var w=parseInt(getComputedStyle(document.documentElement).getPropertyValue("--drawer-w")); if(w) setW(w, false); });
+})();
 
 /* Windows close only from their own Close / Cancel buttons (or Esc): a click outside
    them does nothing, so a stray click never loses what was typed. The search palette
