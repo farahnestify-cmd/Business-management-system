@@ -1064,7 +1064,7 @@ function openTxIn(id){
     var lineMargin = num(li.qty)*(toBase(t,netUnit(t,li))-unitCost);
     var left=lineLeft(li);
     return '<tr><td>'+esc(li.name)+(li.kind==="service" ? '<div class="tiny faint">labour · no stock</div>' : '')+
-      (li.kind==="combo" ? '<div class="tiny '+(needsColour(li)?'" style="color:var(--warn)':'faint"')+'>'+esc(comboDetail(li))+'</div>' : '')+'</td><td class="num">'+num(li.qty)+(li.unit ? ' <span class="tiny faint">'+esc(li.unit)+'</span>' : '')+'</td>'+
+      (li.kind==="combo" ? '<div class="tiny'+(needsColour(li) ? '" style="color:var(--warn)"' : ' faint"')+'>'+esc(comboDetail(li))+'</div>' : '')+'</td><td class="num">'+num(li.qty)+(li.unit ? ' <span class="tiny faint">'+esc(li.unit)+'</span>' : '')+'</td>'+
       (showDelivered ? '<td class="num">'+(li.kind==="service" ? '<span class="faint">—</span>' : (left>0 ? '<span style="color:var(--warn)">'+num(li.deliveredQty)+'</span>' : num(li.deliveredQty)))+'</td>' : '')+
       '<td class="num">'+money(li.unitPrice)+'</td>'+
       '<td class="num c-cost">'+(unitCost>0 ? usd(lineMargin) : '<span class="faint">—</span>')+'</td>'+
