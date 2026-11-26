@@ -10,7 +10,7 @@ class CompanySetting extends Model
 
     public const DEFAULTS = [
         'name' => 'nestify',
-        'tagline' => 'Smart Home Systems',
+        'tagline' => 'where your home gets a brain.',
         'vat_pct' => 0,
         'validity_days' => 14,
         'overdue_days' => 14,

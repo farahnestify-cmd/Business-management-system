@@ -353,7 +353,7 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 #doc .d-word{font-size:22px; font-weight:500; letter-spacing:-0.01em; color:#45484B}
 #doc .d-logo{height:26px; width:auto; object-fit:contain}
 #doc .d-logo-big{height:30px; width:auto; object-fit:contain; display:block; margin-bottom:6px}
-#doc .d-bar-r{font-size:11px; letter-spacing:.1em; color:#8B928B}
+#doc .d-bar-r{font-size:12px; letter-spacing:.01em; color:#8B928B}
 #doc .d-footbar{display:flex; justify-content:space-between; padding:14px 48px 20px; border-top:1px solid #E8EAE7; font-size:10.5px; color:#8B928B; letter-spacing:.04em}
 #doc .d-cover{height:100%; min-height:520px; background:#FFFFFF; color:#161A16;
   display:flex; flex-direction:column; justify-content:space-between; padding:150px 46px 70px; box-sizing:border-box}
@@ -379,7 +379,7 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 .brand-box img{max-height:44px; max-width:180px; object-fit:contain; border:1px solid var(--line); border-radius:var(--radius); background:#fff; padding:4px}
 #doc .d-top{display:flex; justify-content:space-between; align-items:flex-start; gap:24px; padding-bottom:20px; border-bottom:1.5px solid #161A16}
 #doc .d-mark b{display:block; font-size:24px; font-weight:500; letter-spacing:-0.01em; color:#45484B}
-#doc .d-mark span{display:block; font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:#6A716A; margin-top:5px}
+#doc .d-mark span{display:block; font-size:12px; letter-spacing:.01em; color:#6A716A; margin-top:5px}
 #doc .d-kind{text-align:right}
 #doc .d-kind .k{font-size:11.5px; font-weight:700; letter-spacing:.22em; text-transform:uppercase; color:#6A716A}
 #doc .d-kind .r{font-family:var(--f-mono); font-size:20px; font-weight:500; letter-spacing:-0.02em; margin-top:4px}
@@ -397,7 +397,8 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 #doc .d-tot .r span:last-child{font-family:var(--f-mono); font-variant-numeric:tabular-nums}
 #doc .d-tot .r.g{font-size:17px; font-weight:600; border-top:1px solid #161A16; padding-top:8px; margin-top:4px}
 /* The items table on printed documents: a grey heading row, ruled lines, centred figures. */
-#doc table.d-items{font-size:12px; border:1px solid #CFCFCF}
+/* Only a line under each row: no frame and no lines down the sides. */
+#doc table.d-items{font-size:12px; border:none}
 #doc table.d-items th, #doc table.d-items td{padding:8px 8px; border-bottom:1px solid #DCDCDC; vertical-align:middle; text-align:left}
 #doc table.d-items .c{text-align:center}
 #doc table.d-items thead th{color:#161A16; font-size:11px; font-weight:600; letter-spacing:0; text-transform:none; border-bottom:1px solid #9A9A9A; background:#FFFFFF}
@@ -406,8 +407,8 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 #doc table.d-items td.pic{padding:4px 6px}
 #doc table.d-items td.pic img{max-height:30px; max-width:80px; object-fit:contain; display:inline-block; vertical-align:middle}
 #doc table.d-items tr.opt td{font-style:italic; color:#6A716A}
-#doc table.d-tot2{width:62%; margin:0 0 0 auto; font-size:12px; border:1px solid #CFCFCF; border-top:none}
-#doc table.d-tot2 td{padding:9px 10px; border-bottom:1px solid #DCDCDC; border-left:1px solid #DCDCDC; font-weight:500}
+#doc table.d-tot2{width:62%; margin:0 0 0 auto; font-size:12px; border:none}
+#doc table.d-tot2 td{padding:9px 10px; border-bottom:1px solid #DCDCDC; font-weight:500}
 #doc table.d-tot2 td.c{text-align:center; width:38%}
 #doc table.d-tot2 tr.g td{font-weight:700; font-size:13px}
 #doc .d-note{margin-top:30px; padding-top:14px; border-top:1px solid #E8EAE7; font-size:12px; color:#6A716A; line-height:1.6; white-space:pre-wrap}

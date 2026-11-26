@@ -5,7 +5,7 @@
    1. STATE
    ============================================================ */
 var DEFAULTS = {
-  name:"nestify", tagline:"Smart Home Systems", phone:"", email:"", website:"", address:"",
+  name:"nestify", tagline:"where your home gets a brain.", phone:"", email:"", website:"", address:"",
   vatPct:0, validityDays:14, overdueDays:14, staleDays:21, varianceFlag:15,
   termsQuotation:"All prices in USD. This quotation is valid for {validity} days from the date above. A down payment confirms the order and reserves the stock listed.",
   termsAgreement:"This agreement confirms the scope and prices listed above. The balance falls due on delivery unless a date is stated. Nestify remains the owner of the goods until payment is received in full.",

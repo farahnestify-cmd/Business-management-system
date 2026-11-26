@@ -455,7 +455,7 @@
           <div class="panel panel-pad">
             <div class="grid g2">
               <div class="field"><label for="s-name">Trading name</label><input id="s-name" type="text" placeholder="Nestify"></div>
-              <div class="field"><label for="s-tagline">Line under the name</label><input id="s-tagline" type="text" placeholder="Smart Home Systems"></div>
+              <div class="field"><label for="s-tagline">Line under the name</label><input id="s-tagline" type="text" placeholder="where your home gets a brain."></div>
               <div class="field"><label for="s-phone">Phone</label><input id="s-phone" type="text"></div>
               <div class="field"><label for="s-email">Email</label><input id="s-email" type="text"></div>
               <div class="field"><label for="s-website">Website</label><input id="s-website" type="text"></div>
