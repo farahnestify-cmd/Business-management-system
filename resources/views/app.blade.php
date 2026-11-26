@@ -138,6 +138,7 @@
               <div><h2>Finished products</h2><p class="sub">Sold as one piece — door locks, DNAKE units, WiFi switches, accessories.</p></div>
               <button class="btn sm" type="button" data-add="product" data-need="manager">Add product</button>
             </div>
+            <div class="tbl-tools"><input type="search" data-ff="products" data-k="q" placeholder="Search products…" autocomplete="off"><select data-ff="products" data-k="g" aria-label="Category"></select><select data-ff="products" data-k="s" aria-label="Stock"><option value="">Any stock level</option><option value="low">Below reorder point</option><option value="out">Out of stock</option></select><span class="tiny faint" data-fcount="products"></span></div>
             <div class="panel"><div class="table-wrap"><table>
               <thead><tr><th>Product</th><th>Category</th><th class="num c-cost">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Incoming</th><th class="num">Available</th><th>Status</th></tr></thead>
               <tbody id="inv-products"></tbody>
@@ -148,6 +149,7 @@
               <div><h2>Bases</h2><p class="sub">The functional unit — unlasered, no finish. One base pairs with any cover in its line.</p></div>
               <button class="btn sm" type="button" data-add="base" data-need="manager">Add base</button>
             </div>
+            <div class="tbl-tools"><input type="search" data-ff="bases" data-k="q" placeholder="Search bases…" autocomplete="off"><select data-ff="bases" data-k="g" aria-label="Line"></select><select data-ff="bases" data-k="s" aria-label="Stock"><option value="">Any stock level</option><option value="low">Below reorder point</option><option value="out">Out of stock</option></select><span class="tiny faint" data-fcount="bases"></span></div>
             <div class="panel"><div class="table-wrap"><table>
               <thead><tr><th>Base</th><th>Line</th><th class="num c-cost">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Incoming</th><th class="num">Available</th><th>Status</th></tr></thead>
               <tbody id="inv-bases"></tbody>
@@ -158,6 +160,7 @@
               <div><h2>Cover types</h2><p class="sub">An offer names the base and a cover type (Q, S…), priced as the base plus the type's add-on. The colours are chosen once the client agrees.</p></div>
               <button class="btn sm" type="button" data-add="ctype" data-need="manager">Add cover type</button>
             </div>
+            <div class="tbl-tools"><input type="search" data-ff="ctypes" data-k="q" placeholder="Search cover types…" autocomplete="off"><span class="tiny faint" data-fcount="ctypes"></span></div>
             <div class="panel"><div class="table-wrap"><table>
               <thead><tr><th>Type</th><th>Name</th><th class="num">Adds for an end user</th><th class="num">Adds for a dealer</th><th class="num">Covers</th></tr></thead>
               <tbody id="inv-ctypes"></tbody>
@@ -168,6 +171,7 @@
               <div><h2>Covers</h2><p class="sub">Colour and finish faceplates, counted separately from the bases they clip onto.</p></div>
               <button class="btn sm" type="button" data-add="cover" data-need="manager">Add cover</button>
             </div>
+            <div class="tbl-tools"><input type="search" data-ff="covers" data-k="q" placeholder="Search covers…" autocomplete="off"><select data-ff="covers" data-k="g" aria-label="Type"></select><select data-ff="covers" data-k="s" aria-label="Stock"><option value="">Any stock level</option><option value="low">Below reorder point</option><option value="out">Out of stock</option></select><span class="tiny faint" data-fcount="covers"></span></div>
             <div class="panel"><div class="table-wrap"><table>
               <thead><tr><th>Cover</th><th>Type</th><th>Finish</th><th class="num c-cost">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Available</th><th>Status</th></tr></thead>
               <tbody id="inv-covers"></tbody>

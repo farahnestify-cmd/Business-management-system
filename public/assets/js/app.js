@@ -2169,12 +2169,13 @@ function stockPill(kind, item){
   return '<span class="pill good">Healthy</span>';
 }
 function renderCoverTypes(){
-  var rows=state.coverTypes||[];
+  var all=state.coverTypes||[], rows=all.filter(function(ct){ return matchesQ(invF.ctypes.q,[ct.code,ct.name]); });
+  filterCount("ctypes", rows.length, all.length);
   $("inv-ctypes").innerHTML = rows.length ? rows.map(function(ct){
     var n=state.covers.filter(function(c){ return c.line===ct.code; }).length;
     return '<tr class="'+(isManager()?"clickable":"")+'" data-ct="'+ct.id+'"><td class="mono strong">'+esc(ct.code)+'</td><td>'+esc(ct.name||"")+'</td>'+
       '<td class="num">+'+usd(ct.addOnEndUser)+'</td><td class="num">+'+usd(ct.addOnDealer)+'</td><td class="num">'+n+'</td></tr>';
-  }).join("") : emptyRow(5,"No cover types yet — add Q, S… to offer a base by type.");
+  }).join("") : emptyRow(5, all.length ? "Nothing matches the search." : "No cover types yet — add Q, S… to offer a base by type.");
   if(isManager()) $("inv-ctypes").querySelectorAll("[data-ct]").forEach(function(r){
     r.addEventListener("click", function(){ editCoverType(byId(state.coverTypes, r.dataset.ct)); });
   });
@@ -2194,8 +2195,45 @@ function editCoverType(ct){
       function(){ toast("Cover type saved"); });
   }, isNew ? null : function(){ remove("cover_types", ct.id, ct.code); });
 }
+/* ---------- Search and filters on the stock tables ---------- */
+var invF={products:{q:"",g:"",s:""}, bases:{q:"",g:"",s:""}, covers:{q:"",g:"",s:""}, ctypes:{q:"",g:"",s:""}};
+function matchesQ(q, parts){
+  q=String(q||"").trim().toLowerCase(); if(!q) return true;
+  var hay=parts.filter(Boolean).join(" ").toLowerCase();
+  return q.split(/\s+/).every(function(w){ return hay.indexOf(w)>=0; });
+}
+function stockMatch(s, kind, item){
+  if(s==="low") return isLow(kind, item);
+  if(s==="out") return availableOf(kind, item)<=0;
+  return true;
+}
+/* Fills a group filter with the values in use, keeping the current choice. */
+function fillGroup(key, allLabel, values){
+  var sel=document.querySelector('select[data-ff="'+key+'"][data-k="g"]'); if(!sel) return;
+  var vals=values.filter(function(v, i){ return v && values.indexOf(v)===i; }).sort();
+  if(invF[key].g && vals.indexOf(invF[key].g)<0) vals.push(invF[key].g);
+  sel.innerHTML='<option value="">'+esc(allLabel)+'</option>'+vals.map(function(v){ return '<option value="'+esc(v)+'">'+esc(v)+'</option>'; }).join("");
+  sel.value=invF[key].g;
+}
+function filterCount(key, shown, total){
+  var el=document.querySelector('[data-fcount="'+key+'"]');
+  if(el) el.textContent = shown===total ? "" : shown+" of "+total;
+}
+document.querySelectorAll("[data-ff]").forEach(function(inp){
+  inp.addEventListener("input", function(){ invF[inp.dataset.ff][inp.dataset.k]=inp.value; renderInventory(); });
+});
 function renderInventory(){
   renderCoverTypes();
+  fillGroup("products", "All categories", state.products.map(function(p){ return p.category; }));
+  fillGroup("bases", "All lines", state.bases.map(function(b){ return b.line; }));
+  fillGroup("covers", "All types", state.covers.map(function(c){ return c.line; }));
+  var fP=invF.products, fB=invF.bases, fC=invF.covers;
+  var products=state.products.filter(function(p){ return matchesQ(fP.q,[p.name,p.category]) && (!fP.g || p.category===fP.g) && stockMatch(fP.s,"product",p); });
+  var bases=state.bases.filter(function(b){ return matchesQ(fB.q,[b.name,b.line]) && (!fB.g || b.line===fB.g) && stockMatch(fB.s,"base",b); });
+  var covers=state.covers.filter(function(c){ return matchesQ(fC.q,[c.name,c.line,c.color,c.finish]) && (!fC.g || c.line===fC.g) && stockMatch(fC.s,"cover",c); });
+  filterCount("products", products.length, state.products.length);
+  filterCount("bases", bases.length, state.bases.length);
+  filterCount("covers", covers.length, state.covers.length);
   var units = sum(state.products,function(p){ return num(p.stockOnHand); })
             + sum(state.bases,function(b){ return num(b.stockOnHand); })
             + sum(state.covers,function(c){ return num(c.stockOnHand); });
@@ -2205,32 +2243,32 @@ function renderInventory(){
     figure("Units on hand", String(units)) +
     figure("Below reorder point", String(lowCount));
 
-  $("inv-products").innerHTML = state.products.length ? state.products.map(function(p){
+  $("inv-products").innerHTML = products.length ? products.map(function(p){
     return '<tr class="clickable" data-edit="product:'+p.id+'">'+
       '<td class="strong">'+esc(p.name)+'</td><td class="tiny muted">'+esc(p.category||"")+'</td>'+
       '<td class="num c-cost">'+(itemCost(p)>0?money(itemCost(p)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(p.stockOnHand)+'</td><td class="num">'+reservedFor("product",p.id)+'</td>'+
       '<td class="num">'+(incomingFor("product",p.id)||'<span class="faint">—</span>')+'</td>'+
       '<td class="num strong">'+availCell("product",p)+'</td><td>'+stockPill("product",p)+'</td></tr>';
-  }).join("") : emptyRow(8,"No products yet.");
+  }).join("") : emptyRow(8, state.products.length ? "Nothing matches the search." : "No products yet.");
 
-  $("inv-bases").innerHTML = state.bases.length ? state.bases.map(function(b){
+  $("inv-bases").innerHTML = bases.length ? bases.map(function(b){
     return '<tr class="clickable" data-edit="base:'+b.id+'">'+
       '<td class="strong">'+esc(b.name)+'</td><td class="tiny muted">'+esc(b.line||"")+'</td>'+
       '<td class="num c-cost">'+(itemCost(b)>0?money(itemCost(b)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(b.stockOnHand)+'</td><td class="num">'+reservedFor("base",b.id)+'</td>'+
       '<td class="num">'+(incomingFor("base",b.id)||'<span class="faint">—</span>')+'</td>'+
       '<td class="num strong">'+availCell("base",b)+'</td><td>'+stockPill("base",b)+'</td></tr>';
-  }).join("") : emptyRow(8,"No bases yet.");
+  }).join("") : emptyRow(8, state.bases.length ? "Nothing matches the search." : "No bases yet.");
 
-  $("inv-covers").innerHTML = state.covers.length ? state.covers.map(function(c){
+  $("inv-covers").innerHTML = covers.length ? covers.map(function(c){
     return '<tr class="clickable" data-edit="cover:'+c.id+'">'+
       '<td class="strong">'+esc(c.name)+'</td><td class="tiny muted">'+esc(c.line||"")+'</td>'+
       '<td class="tiny muted">'+esc(c.finish||"")+'</td>'+
       '<td class="num c-cost">'+(itemCost(c)>0?money(itemCost(c)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(c.stockOnHand)+'</td><td class="num">'+reservedFor("cover",c.id)+'</td>'+
       '<td class="num strong">'+availCell("cover",c)+'</td><td>'+stockPill("cover",c)+'</td></tr>';
-  }).join("") : emptyRow(8,"No covers yet.");
+  }).join("") : emptyRow(8, state.covers.length ? "Nothing matches the search." : "No covers yet.");
 
   document.querySelectorAll("#inv-pane-stock [data-edit]").forEach(function(r){
     r.addEventListener("click", function(){
