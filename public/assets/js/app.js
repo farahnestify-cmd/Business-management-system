@@ -3551,8 +3551,8 @@ function monthReport(mk){
     normalizedPayments(t).forEach(function(p){
       if(monthKey(p.date)!==mk) return;
       var a=toBase(t, p.amount);
-      if(a>=0) inRows.push({date:p.date, who:t.clientName||"", ref:t.refNo, how:p.method||"", amount:a, orig:txCur(t)!=="USD" ? inCur(t,p.amount) : ""});
-      else outRows.push({date:p.date, what:"Refund — "+(t.clientName||""), kind:"Refund", amount:-a});
+      if(a>=0) inRows.push({date:p.date, who:t.clientName||"", clientId:t.clientId, ref:t.refNo, how:p.method||"", amount:a, orig:txCur(t)!=="USD" ? inCur(t,p.amount) : ""});
+      else outRows.push({date:p.date, what:"Refund — "+(t.clientName||""), clientId:t.clientId, ref:t.refNo, kind:"Refund", amount:-a});
     });
   });
   state.expenses.forEach(function(e){
@@ -3611,12 +3611,50 @@ function monthReport(mk){
     dueAll:sum(due, function(d){ return d.amount; })
   };
 }
+/* Search and filters on the report: every table follows them, and so do the figures. */
+var repF={q:"", client:"", kind:"", moved:""};
+document.querySelectorAll("[data-rf]").forEach(function(inp){
+  inp.addEventListener("input", function(){ repF[inp.dataset.rf]=inp.value; renderReports(); });
+});
+$("rf-clear").addEventListener("click", function(){
+  Object.keys(repF).forEach(function(k){ repF[k]=""; });
+  document.querySelectorAll("[data-rf]").forEach(function(inp){ inp.value=""; });
+  renderReports();
+});
+function repFilterOn(){ return Object.keys(repF).some(function(k){ return !!repF[k]; }); }
+function filteredReport(R){
+  var f=repF, byClient=function(id){ return !f.client || id===f.client; };
+  var dealQ=function(t, extra){ return matchesQ(f.q, [t.refNo, t.clientName, t.site, t.soldBy].concat(extra||[]).concat((t.lineItems||[]).map(function(li){ return li.name; }))); };
+  var out=Object.assign({}, R);
+  out.inRows=R.inRows.filter(function(r){ return byClient(r.clientId) && matchesQ(f.q, [r.who, r.ref, r.how]); });
+  /* Expenses and salaries belong to no client: a client filter keeps only that client's refunds. */
+  out.outRows=R.outRows.filter(function(r){ return (!f.client || r.clientId===f.client) && matchesQ(f.q, [r.what, r.kind, r.ref]); });
+  out.approved=R.approved.filter(function(t){ return byClient(t.clientId) && dealQ(t); });
+  out.owed=R.owed.filter(function(t){ return byClient(t.clientId) && dealQ(t); });
+  out.due=R.due.filter(function(d){ return byClient(d.t.clientId) && dealQ(d.t, [d.what, d.status]); });
+  out.stock=R.stock.filter(function(s){
+    return (!f.kind || s.kind===f.kind) && (!f.moved || s.received+s.returned+s.delivered>0) && matchesQ(f.q, [s.name, s.kind]);
+  });
+  out.cashIn=sum(out.inRows, function(r){ return r.amount; }); out.cashOut=sum(out.outRows, function(r){ return r.amount; });
+  out.net=out.cashIn-out.cashOut;
+  out.approvedTotal=sum(out.approved, baseOf(txTotal));
+  out.owedTotal=sum(out.owed, function(t){ return toBase(t, txBalance(t)); });
+  out.dueOpen=sum(out.due.filter(function(d){ return d.status!=="Received"; }), function(d){ return d.amount; });
+  return out;
+}
 function renderReports(){
+  var cs=document.querySelector('[data-rf="client"]'), clients={};
+  state.transactions.forEach(function(t){ if(t.clientId) clients[t.clientId]=t.clientName||"—"; });
+  cs.innerHTML='<option value="">All clients</option>'+sortBy(Object.keys(clients), function(id){ return clients[id].toLowerCase(); })
+    .map(function(id){ return '<option value="'+id+'">'+esc(clients[id])+'</option>'; }).join("");
+  cs.value=repF.client;
+  $("rf-clear").hidden=!repFilterOn();
+  $("rf-note").textContent = repF.client||repF.q ? "The figures and every table below follow the filters." : "";
   var sel=$("rep-month");
   /* The coming year is there too, to see what falls due ahead. */
   var months=[]; for(var i=12;i>=-23;i--) months.push(addMonths(thisMonth(), i));
   sel.innerHTML=months.map(function(k){ return '<option value="'+k+'"'+(k===state.repMonth?" selected":"")+'>'+esc(monthLabel(k))+'</option>'; }).join("");
-  var R=monthReport(state.repMonth);
+  var R=filteredReport(monthReport(state.repMonth));
   $("rep-figs").innerHTML =
     figure("Received", usd(R.cashIn,0)) +
     figure("Paid out", usd(R.cashOut,0)) +
@@ -3627,10 +3665,10 @@ function renderReports(){
   $("rep-out-sum").textContent=R.outRows.length+" payments · "+usd(R.cashOut);
   $("rep-in").innerHTML = R.inRows.length ? R.inRows.map(function(r){
     return '<tr><td>'+fmtDate(r.date)+'</td><td>'+esc(r.who)+'<div class="tiny faint">'+esc(r.how)+(r.orig?' · '+esc(r.orig):'')+'</div></td><td class="mono tiny">'+esc(r.ref)+'</td><td class="num">'+usd(r.amount)+'</td></tr>';
-  }).join("") : emptyRow(4,"Nothing received this month.");
+  }).join("") : emptyRow(4,repFilterOn() ? "Nothing matches the filters." : "Nothing received this month.");
   $("rep-out").innerHTML = R.outRows.length ? R.outRows.map(function(r){
     return '<tr><td>'+fmtDate(r.date)+'</td><td>'+esc(r.what)+'</td><td class="tiny muted">'+esc(r.kind)+'</td><td class="num">'+usd(r.amount)+'</td></tr>';
-  }).join("") : emptyRow(4,"Nothing paid out this month.");
+  }).join("") : emptyRow(4,repFilterOn() ? "Nothing matches the filters." : "Nothing paid out this month.");
   var open=R.due.filter(function(d){ return d.status!=="Received"; }).length;
   $("rep-due-sum").textContent=R.due.length+" due · "+open+" not paid yet · "+usd(R.dueOpen)+" to collect";
   $("rep-due").innerHTML = R.due.length ? R.due.map(function(d){
@@ -3638,29 +3676,29 @@ function renderReports(){
     return '<tr class="clickable" data-t="'+d.t.id+'"><td>'+fmtDate(d.date)+'</td><td>'+esc(d.t.clientName||"")+'</td><td class="mono tiny">'+esc(d.t.refNo)+'</td>'+
       '<td>'+esc(d.what)+'</td><td><span class="pill '+pill+'">'+d.status+'</span></td>'+
       '<td class="num'+(d.status==="Received"?" faint":" strong")+'">'+d.orig+(txCur(d.t)!=="USD" ? '<div class="tiny faint">'+usd(d.amount)+'</div>' : '')+'</td></tr>';
-  }).join("") : emptyRow(6,"Nothing falls due this month.");
+  }).join("") : emptyRow(6,repFilterOn() ? "Nothing matches the filters." : "Nothing falls due this month.");
   $("rep-approved-sum").textContent=R.approved.length+" offers · "+usd(R.approvedTotal);
   $("rep-approved").innerHTML = R.approved.length ? R.approved.map(function(t){
     return '<tr class="clickable" data-t="'+t.id+'"><td class="mono">'+esc(t.refNo)+'</td><td>'+esc(t.clientName||"")+'</td><td>'+fmtDate(t.agreementDate)+'</td><td>'+dealStage(t)+'</td>'+
       '<td class="num">'+inCur(t,txTotal(t))+'</td><td class="num">'+(txBalance(t)>0.004?inCur(t,txBalance(t)):'<span class="faint">—</span>')+'</td></tr>';
-  }).join("") : emptyRow(6,"No offer was approved this month.");
+  }).join("") : emptyRow(6,repFilterOn() ? "Nothing matches the filters." : "No offer was approved this month.");
   $("rep-owed-sum").textContent=R.owed.length+" deals · "+usd(R.owedTotal);
   $("rep-owed").innerHTML = R.owed.length ? R.owed.map(function(t){
     return '<tr class="clickable" data-t="'+t.id+'"><td class="mono">'+esc(t.refNo)+'</td><td>'+esc(t.clientName||"")+'</td><td>'+dealStage(t)+'</td>'+
       '<td class="num">'+inCur(t,txTotal(t))+'</td><td class="num">'+inCur(t,txPaid(t))+'</td><td class="num strong">'+inCur(t,txBalance(t))+'</td></tr>';
-  }).join("") : emptyRow(6,"Nobody owes anything.");
+  }).join("") : emptyRow(6,repFilterOn() ? "Nothing matches the filters." : "Nobody owes anything.");
   $("rep-stock").innerHTML = R.stock.length ? R.stock.map(function(s){
     var z=function(v){ return v ? String(v) : '<span class="faint">—</span>'; };
     return '<tr><td class="strong">'+esc(s.name)+'</td><td class="tiny muted">'+esc(s.kind)+'</td><td class="num">'+z(s.received)+'</td><td class="num">'+z(s.returned)+'</td>'+
       '<td class="num">'+z(s.delivered)+'</td><td class="num">'+(s.net ? (s.net>0?"+":"−")+Math.abs(s.net) : '<span class="faint">—</span>')+'</td><td class="num strong">'+s.onHand+'</td></tr>';
-  }).join("") : emptyRow(7,"No stock items yet.");
+  }).join("") : emptyRow(7,repFilterOn() ? "Nothing matches the filters." : "No stock items yet.");
   $("view-reports").querySelectorAll("[data-t]").forEach(function(r){
     r.addEventListener("click", function(){ setView("sales"); openTx(r.dataset.t); });
   });
 }
 $("rep-month").addEventListener("change", function(){ state.repMonth=$("rep-month").value; renderReports(); });
 $("rep-xlsx").addEventListener("click", function(){
-  var btn=this, mk=state.repMonth, R=monthReport(mk); btn.disabled=true;
+  var btn=this, mk=state.repMonth, R=filteredReport(monthReport(mk)); btn.disabled=true;
   loadSheetLib().then(function(X){
     var wb=X.utils.book_new();
     var sheets=[

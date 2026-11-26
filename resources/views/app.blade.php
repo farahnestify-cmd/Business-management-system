@@ -374,6 +374,12 @@
           <div class="field" style="min-width:220px; margin:0"><label for="rep-month">Month</label><select id="rep-month"></select></div>
           <button class="btn sm" type="button" id="rep-xlsx">Download this report (Excel)</button>
         </div>
+        <div class="tbl-tools">
+          <input type="search" data-rf="q" placeholder="Search client, reference, item, description…" autocomplete="off">
+          <select data-rf="client" aria-label="Client"></select>
+          <span class="tiny faint" id="rf-note"></span>
+          <button class="btn quiet sm" type="button" id="rf-clear" hidden>Clear filters</button>
+        </div>
         <div class="figures" id="rep-figs"></div>
         <div class="section">
           <div class="section-head"><div><h2>Money in and out</h2><p class="sub">Cash that actually moved this month, in US dollars.</p></div></div>
@@ -398,6 +404,10 @@
         </div>
         <div class="section">
           <div class="section-head"><div><h2>Stock this month</h2><p class="sub">Received from suppliers, returned by clients and delivered out during the month, next to what is on the shelf today.</p></div></div>
+          <div class="tbl-tools">
+            <select data-rf="kind" aria-label="Kind"><option value="">Products, bases and covers</option><option value="product">Products</option><option value="base">Bases</option><option value="cover">Covers</option></select>
+            <select data-rf="moved" aria-label="Movement"><option value="">Every item</option><option value="1">Only items that moved this month</option></select>
+          </div>
           <div class="panel"><div class="table-wrap"><table><thead><tr><th>Item</th><th>Kind</th><th class="num">Received</th><th class="num">Returned</th><th class="num">Delivered</th><th class="num">Net change</th><th class="num">On hand now</th></tr></thead><tbody id="rep-stock"></tbody></table></div></div>
         </div>
       </section>
