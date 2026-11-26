@@ -111,6 +111,15 @@
             </div>
             <span class="tiny faint" id="sales-count"></span>
           </div>
+          <div class="tbl-tools">
+            <input type="search" data-sf="q" placeholder="Search reference, client, site, item…" autocomplete="off">
+            <select data-sf="client" aria-label="Client"></select>
+            <select data-sf="ctype" aria-label="Client type"><option value="">All client types</option><option>End User</option><option>Dealer</option><option>Partner</option></select>
+            <select data-sf="region" aria-label="Region"><option value="">All regions</option><option>West Bank</option><option>48 Region</option></select>
+            <select data-sf="seller" aria-label="Sold by"></select>
+            <select data-sf="month" aria-label="Month"></select>
+            <button class="btn quiet sm" type="button" id="sf-clear" hidden>Clear filters</button>
+          </div>
           <div class="panel"><div class="table-wrap"><table>
             <thead><tr>
               <th>Reference</th><th>Client</th><th>Stage</th><th class="num">Total</th><th class="num">Balance</th><th>Age</th><th class="num c-cost">Margin</th>

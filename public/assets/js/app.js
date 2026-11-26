@@ -928,7 +928,49 @@ function salesRows(){
   if(f==="all") return rows;
   return rows.filter(function(t){ return t.status===f; });
 }
+/* Search and filters on top of the stage buttons. */
+var salesF={q:"", client:"", ctype:"", region:"", seller:"", month:""};
+function salesFilterOn(){ return Object.keys(salesF).some(function(k){ return !!salesF[k]; }); }
+function salesFiltered(rows){
+  var f=salesF;
+  return rows.filter(function(t){
+    if(f.client && t.clientId!==f.client) return false;
+    if(f.ctype && t.clientType!==f.ctype) return false;
+    if(f.region && t.region!==f.region) return false;
+    if(f.seller && (t.soldBy||"").trim()!==f.seller) return false;
+    if(f.month && monthKey(txDocDate(t))!==f.month) return false;
+    return matchesQ(f.q, [t.refNo, t.rootRef, t.clientName, t.site, t.soldBy, t.notes, t.tableTitle, t.status, t.createdByName]
+      .concat((t.lineItems||[]).map(function(li){ return li.name; })));
+  });
+}
+function fillSalesFilters(){
+  var opt=function(sel, label, list){
+    var el=document.querySelector('[data-sf="'+sel+'"]'); if(!el) return;
+    el.innerHTML='<option value="">'+esc(label)+'</option>'+list.map(function(o){ return '<option value="'+esc(o.v)+'">'+esc(o.l)+'</option>'; }).join("");
+    el.value=salesF[sel];
+  };
+  var clients={}, sellers={}, months={};
+  state.transactions.forEach(function(t){
+    if(t.clientId) clients[t.clientId]=t.clientName||"—";
+    if((t.soldBy||"").trim()) sellers[t.soldBy.trim()]=1;
+    var m=monthKey(txDocDate(t)); if(m) months[m]=1;
+  });
+  opt("client", "All clients", sortBy(Object.keys(clients).map(function(id){ return {v:id, l:clients[id]}; }), function(o){ return o.l.toLowerCase(); }));
+  opt("seller", "Anyone selling", Object.keys(sellers).sort().map(function(n){ return {v:n, l:n}; }));
+  opt("month", "Any month", Object.keys(months).sort().reverse().map(function(m){ return {v:m, l:monthLabel(m)}; }));
+  $("sf-clear").hidden=!salesFilterOn();
+}
+document.querySelectorAll("[data-sf]").forEach(function(inp){
+  inp.addEventListener("input", function(){ salesF[inp.dataset.sf]=inp.value; renderSales(); });
+});
+$("sf-clear").addEventListener("click", function(){
+  Object.keys(salesF).forEach(function(k){ salesF[k]=""; });
+  document.querySelector('[data-sf="q"]').value="";
+  document.querySelector('[data-sf="ctype"]').value=""; document.querySelector('[data-sf="region"]').value="";
+  renderSales();
+});
 function renderSales(){
+  fillSalesFilters();
   var live=state.transactions.filter(isLive);
   /* A superseded version is still listed, but it is not a second job. */
   var pipeline=live.filter(function(t){ return (t.status==="Quotation" || t.status==="Agreement") && !isSuperseded(t); });
@@ -943,8 +985,9 @@ function renderSales(){
     figure("Outstanding", money0(outstandingTotal())) +
     (costsVisible() ? figure("Average margin", withCost.length ? pct(marginPct,0) : "—") : figure("Deals this month", String(live.filter(function(t){ return monthKey(txDocDate(t))===mk; }).length)));
 
-  var rows=salesRows();
+  var stageRows=salesRows(), rows=salesFiltered(stageRows);
   $("sales-count").textContent = rows.length + (rows.length===1?" deal":" deals") +
+    (salesFilterOn() && rows.length!==stageRows.length ? " of "+stageRows.length : "") +
     (state.filters.sales==="mine" ? " sold by you or written from your account" : "") +
     (state.filters.sales==="fromsales" ? " written by the sales team (staff accounts)" : "");
   $("sales-body").innerHTML = rows.length ? rows.map(function(t){
@@ -961,7 +1004,7 @@ function renderSales(){
       '<td>'+(isLive(t) && bal>0.004 && age!=null ? '<span class="pill '+(overdue?"bad":"neutral")+'">'+age+'d</span>' : '<span class="faint tiny">—</span>')+'</td>'+
       '<td class="num c-cost">'+m+'</td>'+
     '</tr>';
-  }).join("") : emptyRow(7,"No deals in this view.");
+  }).join("") : emptyRow(7, salesFilterOn() ? "No deals match the search — clear the filters to see them all." : "No deals in this view.");
   $("sales-body").querySelectorAll("[data-tx]").forEach(function(r){
     r.addEventListener("click", function(){ openTx(r.dataset.tx); });
   });
