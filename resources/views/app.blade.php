@@ -169,7 +169,7 @@
               <button class="btn sm" type="button" data-add="cover" data-need="manager">Add cover</button>
             </div>
             <div class="panel"><div class="table-wrap"><table>
-              <thead><tr><th>Cover</th><th>Line</th><th>Finish</th><th class="num">Add-on</th><th class="num c-cost">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Available</th><th>Status</th></tr></thead>
+              <thead><tr><th>Cover</th><th>Type</th><th>Finish</th><th class="num c-cost">Cost</th><th class="num">On hand</th><th class="num">Reserved</th><th class="num">Available</th><th>Status</th></tr></thead>
               <tbody id="inv-covers"></tbody>
             </table></div></div>
           </div>

@@ -2227,11 +2227,10 @@ function renderInventory(){
     return '<tr class="clickable" data-edit="cover:'+c.id+'">'+
       '<td class="strong">'+esc(c.name)+'</td><td class="tiny muted">'+esc(c.line||"")+'</td>'+
       '<td class="tiny muted">'+esc(c.finish||"")+'</td>'+
-      '<td class="num">'+money(c.priceAddOn)+'</td>'+
       '<td class="num c-cost">'+(itemCost(c)>0?money(itemCost(c)):'<span class="faint">—</span>')+'</td>'+
       '<td class="num">'+num(c.stockOnHand)+'</td><td class="num">'+reservedFor("cover",c.id)+'</td>'+
       '<td class="num strong">'+availCell("cover",c)+'</td><td>'+stockPill("cover",c)+'</td></tr>';
-  }).join("") : emptyRow(9,"No covers yet.");
+  }).join("") : emptyRow(8,"No covers yet.");
 
   document.querySelectorAll("#inv-pane-stock [data-edit]").forEach(function(r){
     r.addEventListener("click", function(){
@@ -2345,12 +2344,16 @@ function editStock(kind, item){
   if(kind==="cover"){
     groups.push({fields:[
       {id:"f-name", label:"Cover name", value:d.name, placeholder:"Champagne Matte"},
-      {id:"f-line", label:"Line it belongs to", value:d.line, placeholder:"Q"}]});
+      /* The cover's type ties it to its price and to the colours offered for that type. */
+      (state.coverTypes||[]).length
+        ? {id:"f-line", label:"Cover type", type:"select", value:d.line || ((state.coverTypes||[])[0]||{}).code,
+           options:(state.coverTypes||[]).map(function(ct){ return {value:ct.code, label:ct.code+(ct.name && ct.name!==ct.code ? " — "+ct.name : "")}; })
+             .concat(d.line && !coverTypeByCode(d.line) ? [{value:d.line, label:d.line+" (not in the type list)"}] : [])}
+        : {id:"f-line", label:"Cover type", value:d.line, placeholder:"Q"}]});
     groups.push({fields:[
       {id:"f-color", label:"Colour", value:d.color},
-      {id:"f-finish", label:"Finish", type:"select", options:["Glossy","Matte"], value:d.finish},
-      {id:"f-addon", label:"Own add-on (only if its line is not a cover type)", type:"number", step:"0.01", value:num(d.priceAddOn)}]});
-    groups.push({note:"The price a cover adds comes from its cover type (Inventory → Cover types), set once for the whole type and taken when Q or S is chosen in the offer. Choosing the colour later does not change the price."});
+      {id:"f-finish", label:"Finish", type:"select", options:["Glossy","Matte"], value:d.finish}]});
+    groups.push({note:"The price a cover adds comes from its type (Inventory → Cover types), taken when Q or S is chosen in the offer."});
   } else {
     groups.push({fields:[
       {id:"f-name", label:kind==="base"?"Base name":"Product name", value:d.name,
@@ -2427,13 +2430,14 @@ function editStock(kind, item){
 
   openForm((isNew?"Add ":"Edit ")+titleMap[kind], groups, function(){
     if(!val("f-name")){ toast("Give it a name first", true); return false; }
+    if(kind==="cover" && !val("f-line")){ toast("Choose the cover's type (Q, S…)", true); return false; }
     var data={
       name:val("f-name"),
       cost:costsVisible() ? valNum("f-cost") : undefined,
       stockOnHand:valNum("f-stock"), reorderThreshold:valNum("f-reorder")
     };
     if(kind==="cover"){
-      data.line=val("f-line"); data.color=val("f-color"); data.finish=val("f-finish"); data.priceAddOn=valNum("f-addon");
+      data.line=val("f-line"); data.color=val("f-color"); data.finish=val("f-finish");
     } else {
       if(kind==="base") data.line=val("f-line"); else data.category=val("f-category");
       data.dealerPriceWB=valNum("f-dwb"); data.endUserPriceWB=valNum("f-ewb");
