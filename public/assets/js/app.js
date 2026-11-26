@@ -2113,6 +2113,8 @@ function openDocIn(t, kind, updated){
       '<table style="margin-top:22px"><thead><tr><th>Received on</th><th>Method</th><th class="num">Amount</th></tr></thead><tbody>'+
       pays.map(function(p){ return '<tr><td>'+fmtDate(p.date)+'</td><td>'+esc(p.method||"")+'</td><td class="num">'+money(p.amount)+'</td></tr>'; }).join("")+
       '</tbody></table>' : '')+
+    /* The spacer takes whatever room the page has left, so the terms sit low on the page. */
+    '<div class="d-spacer"></div>'+
     (terms ? '<div class="d-note">'+esc(terms)+'</div>' : '')+
     (kind==="Agreement" || kind==="Delivery Note" ?
       '<div class="d-sign"><div>Client signature</div><div>For '+esc(s.name||"nestify")+'</div></div>' : '')+
