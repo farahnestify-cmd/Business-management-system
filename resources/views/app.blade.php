@@ -329,6 +329,13 @@
               <div><h2>Expenses</h2><p class="sub">Everything Nestify spends outside salaries. Stock purchases entered here still restock the item.</p></div>
               <button class="btn sm primary" type="button" data-add="expense">Add expense</button>
             </div>
+            <div class="tbl-tools">
+              <input type="search" data-mf="exp" data-k="q" placeholder="Search description, paid to, notes…" autocomplete="off">
+              <select data-mf="exp" data-k="cat" aria-label="Category"></select>
+              <select data-mf="exp" data-k="method" aria-label="Method"><option value="">Any method</option><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select>
+              <select data-mf="exp" data-k="month" aria-label="Month"></select>
+              <span class="tiny faint" data-mcount="exp"></span>
+            </div>
             <div class="panel"><div class="table-wrap"><table>
               <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Paid to</th><th>Method</th><th class="num">Amount</th></tr></thead>
               <tbody id="exp-body"></tbody>
@@ -345,6 +352,13 @@
                 <button type="button" data-f="in">In</button>
                 <button type="button" data-f="out">Out</button>
               </div>
+            </div>
+            <div class="tbl-tools">
+              <input type="search" data-mf="led" data-k="q" placeholder="Search client, description, reference…" autocomplete="off">
+              <select data-mf="led" data-k="kind" aria-label="Kind"><option value="">Every kind</option><option>Client payment</option><option>Refund</option><option>Expense</option><option>Salary</option></select>
+              <select data-mf="led" data-k="method" aria-label="Method"><option value="">Any method</option><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select>
+              <select data-mf="led" data-k="month" aria-label="Month"></select>
+              <span class="tiny faint" data-mcount="led"></span>
             </div>
             <div class="panel"><div class="table-wrap"><table>
               <thead><tr><th>Date</th><th>Movement</th><th>Reference</th><th>Method</th><th class="num">In</th><th class="num">Out</th></tr></thead>

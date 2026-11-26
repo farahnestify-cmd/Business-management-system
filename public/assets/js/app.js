@@ -347,15 +347,15 @@ function ledgerRows(){
   state.transactions.forEach(function(t){
     normalizedPayments(t).forEach(function(p){
       var a=num(p.amount), base=toBase(t,a);
-      rows.push({date:p.date, dir:a<0?"out":"in", label:(p.type||"Payment")+" — "+(t.clientName||""), ref:t.refNo, method:p.method||"", amount:Math.abs(base),
+      rows.push({date:p.date, dir:a<0?"out":"in", kind:a<0?"Refund":"Client payment", label:(p.type||"Payment")+" — "+(t.clientName||""), ref:t.refNo, method:p.method||"", amount:Math.abs(base),
         orig: txCur(t)!=="USD" ? inCur(t, Math.abs(a)) : ""});
     });
   });
   state.expenses.forEach(function(e){
-    rows.push({date:e.date, dir:"out", label:(e.description||e.category||"Expense")+(e.vendor?" — "+e.vendor:""), ref:e.poRef||e.category||"", method:e.paymentMethod||"", amount:num(e.amount)});
+    rows.push({date:e.date, dir:"out", kind:"Expense", label:(e.description||e.category||"Expense")+(e.vendor?" — "+e.vendor:""), ref:e.poRef||e.category||"", method:e.paymentMethod||"", amount:num(e.amount)});
   });
   state.payroll.forEach(function(p){
-    rows.push({date:p.paidDate||(p.month?p.month+"-01":""), dir:"out", label:"Salary — "+(p.employeeName||""), ref:p.month||"", method:p.method||"", amount:num(p.amount)});
+    rows.push({date:p.paidDate||(p.month?p.month+"-01":""), dir:"out", kind:"Salary", label:"Salary — "+(p.employeeName||""), ref:p.month||"", method:p.method||"", amount:num(p.amount)});
   });
   return sortBy(rows, function(r){ return r.date||""; }, true);
 }
@@ -3081,15 +3081,37 @@ function renderPL(){
       '<td class="num">'+money0(m.collected)+'</td></tr>';
   }).join("") : emptyRow(8,"No activity to report yet.");
 }
+/* Search and filters on the Expenses and Cash ledger tabs. */
+var moneyF={exp:{q:"",cat:"",method:"",month:""}, led:{q:"",kind:"",method:"",month:""}};
+document.querySelectorAll("[data-mf]").forEach(function(inp){
+  inp.addEventListener("input", function(){ moneyF[inp.dataset.mf][inp.dataset.k]=inp.value; renderMoney(); });
+});
+function fillMoneySelect(key, k, label, values, labeller){
+  var el=document.querySelector('[data-mf="'+key+'"][data-k="'+k+'"]'); if(!el) return;
+  var vals=values.filter(function(v, i){ return v && values.indexOf(v)===i; });
+  el.innerHTML='<option value="">'+esc(label)+'</option>'+vals.map(function(v){ return '<option value="'+esc(v)+'">'+esc(labeller ? labeller(v) : v)+'</option>'; }).join("");
+  el.value=moneyF[key][k];
+}
+function moneyCount(key, shown, total, extra){
+  var on=Object.keys(moneyF[key]).some(function(k){ return !!moneyF[key][k]; });
+  var el=document.querySelector('[data-mcount="'+key+'"]'); if(el) el.textContent = on ? shown+" of "+total+(extra?" · "+extra:"") : "";
+}
 function renderExpenses(){
-  var rows=sortBy(state.expenses, function(e){ return e.date||""; }, true);
+  var f=moneyF.exp, all=state.expenses;
+  fillMoneySelect("exp", "cat", "All categories", all.map(function(e){ return e.category; }).sort());
+  fillMoneySelect("exp", "month", "Any month", all.map(function(e){ return monthKey(e.date); }).sort().reverse(), monthLabel);
+  var rows=sortBy(all.filter(function(e){
+    return (!f.cat || e.category===f.cat) && (!f.method || e.paymentMethod===f.method) && (!f.month || monthKey(e.date)===f.month) &&
+      matchesQ(f.q, [e.description, e.vendor, e.notes, e.category, e.poRef]);
+  }), function(e){ return e.date||""; }, true);
+  moneyCount("exp", rows.length, all.length, money(sum(rows, function(e){ return e.amount; })));
   $("exp-body").innerHTML = rows.length ? rows.map(function(e){
     return '<tr class="clickable" data-e="'+e.id+'"><td>'+fmtDate(e.date)+'</td>'+
       '<td><span class="pill neutral">'+esc(e.category||"Other")+'</span></td>'+
       '<td>'+esc(e.description||"")+(e.poRef?'<div class="tiny faint mono">'+esc(e.poRef)+'</div>':'')+'</td>'+
       '<td>'+esc(e.vendor||"")+'</td><td class="tiny muted">'+esc(e.paymentMethod||"")+'</td>'+
       '<td class="num">'+money(e.amount)+'</td></tr>';
-  }).join("") : emptyRow(6,"Nothing logged yet.");
+  }).join("") : emptyRow(6, all.length ? "Nothing matches the search." : "Nothing logged yet.");
   $("exp-body").querySelectorAll("[data-e]").forEach(function(r){
     r.addEventListener("click", function(){ editExpense(byId(state.expenses, r.dataset.e)); });
   });
@@ -3121,13 +3143,23 @@ function editExpense(e){
 }
 function renderLedger(){
   var f=state.filters.ledger;
-  var rows=ledgerRows().filter(function(r){ return f==="all" || r.dir===f; }).slice(0,180);
+  var mf=moneyF.led, every=ledgerRows();
+  fillMoneySelect("led", "month", "Any month", every.map(function(r){ return monthKey(r.date); }), monthLabel);
+  var picked=every.filter(function(r){
+    return (f==="all" || r.dir===f) && (!mf.kind || r.kind===mf.kind) && (!mf.method || r.method===mf.method) &&
+      (!mf.month || monthKey(r.date)===mf.month) && matchesQ(mf.q, [r.label, r.ref, r.method, r.kind, r.orig]);
+  });
+  var inSum=sum(picked.filter(function(r){ return r.dir==="in"; }), function(r){ return r.amount; });
+  var outSum=sum(picked.filter(function(r){ return r.dir==="out"; }), function(r){ return r.amount; });
+  moneyCount("led", picked.length, every.length, "in "+usd(inSum)+" · out "+usd(outSum));
+  /* A search reaches the whole history; the plain list shows the latest movements. */
+  var rows=Object.keys(mf).some(function(k){ return !!mf[k]; }) ? picked : picked.slice(0,180);
   $("ledger-body").innerHTML = rows.length ? rows.map(function(r){
     return '<tr><td>'+fmtDate(r.date)+'</td><td>'+esc(r.label)+(r.orig?' <span class="tiny faint">('+esc(r.orig)+')</span>':'')+'</td>'+
       '<td class="mono tiny">'+esc(r.ref||"")+'</td><td class="tiny muted">'+esc(r.method||"")+'</td>'+
       '<td class="num">'+(r.dir==="in"?money(r.amount):'')+'</td>'+
       '<td class="num">'+(r.dir==="out"?money(r.amount):'')+'</td></tr>';
-  }).join("") : emptyRow(6,"No movements recorded yet.");
+  }).join("") : emptyRow(6, every.length ? "Nothing matches the search." : "No movements recorded yet.");
 }
 
 /* ============================================================
