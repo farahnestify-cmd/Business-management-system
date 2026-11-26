@@ -266,6 +266,14 @@
             </div>
             <button class="btn sm" type="button" data-add="client">Add contact</button>
           </div>
+          <div class="tbl-tools">
+            <input type="search" data-cf="q" placeholder="Search name, phone, email, notes…" autocomplete="off">
+            <select data-cf="region" aria-label="Region"><option value="">All regions</option><option>West Bank</option><option>48 Region</option></select>
+            <select data-cf="tier" aria-label="Price tier"></select>
+            <select data-cf="title" aria-label="Title"><option value="">Anyone</option><option value="Mr.">Mr.</option><option value="Mrs.">Mrs.</option><option value="Ms.">Ms.</option><option value="none">Companies (no title)</option></select>
+            <span class="tiny faint" id="cf-count"></span>
+            <button class="btn quiet sm" type="button" id="cf-clear" hidden>Clear filters</button>
+          </div>
           <div class="panel"><div class="table-wrap"><table>
             <thead><tr><th>Name</th><th>Type</th><th>Region</th><th class="num">Discount</th><th class="num">Deals</th><th class="num">Billed</th><th class="num">Outstanding</th><th>Last activity</th></tr></thead>
             <tbody id="contacts-body"></tbody>

@@ -2844,8 +2844,24 @@ function editTier(t){
       function(){ toast("Tier saved"); });
   }, isNew ? null : function(){ remove("price_tiers", t.id, t.name); });
 }
+/* Search and filters on top of the Everyone / Dealers / … buttons. */
+var contactF={q:"", region:"", tier:"", title:""};
+function contactFilterOn(){ return Object.keys(contactF).some(function(k){ return !!contactF[k]; }); }
+document.querySelectorAll("[data-cf]").forEach(function(inp){
+  inp.addEventListener("input", function(){ contactF[inp.dataset.cf]=inp.value; renderContacts(); });
+});
+$("cf-clear").addEventListener("click", function(){
+  Object.keys(contactF).forEach(function(k){ contactF[k]=""; });
+  document.querySelectorAll("[data-cf]").forEach(function(inp){ inp.value=""; });
+  renderContacts();
+});
 function renderContacts(){
   renderTiers();
+  var tierSel=document.querySelector('[data-cf="tier"]');
+  tierSel.innerHTML='<option value="">All price tiers</option><option value="none">No tier</option>'+(state.tiers||[]).map(function(t){
+    return '<option value="'+t.id+'">'+esc(t.name)+'</option>'; }).join("");
+  tierSel.value=contactF.tier;
+  $("cf-clear").hidden=!contactFilterOn();
   var dealers=state.clients.filter(function(c){ return c.type==="Dealer"; });
   var owing=state.clients.map(function(c){ return clientStats(c).outstanding; }).filter(function(v){ return v>0.004; });
   $("contacts-figs").innerHTML =
@@ -2859,6 +2875,14 @@ function renderContacts(){
     if(f==="owing") return clientStats(c).outstanding>0.004;
     return c.type===f;
   });
+  var before=rows.length, cf=contactF;
+  rows=rows.filter(function(c){
+    if(cf.region && c.region!==cf.region) return false;
+    if(cf.tier==="none" ? !!c.tierId : (cf.tier && c.tierId!==cf.tier)) return false;
+    if(cf.title==="none" ? !!c.salutation : (cf.title && c.salutation!==cf.title)) return false;
+    return matchesQ(cf.q, [c.name, c.salutation, c.phone, c.email, c.notes, c.region, c.type, tierLabel(c)]);
+  });
+  $("cf-count").textContent = contactFilterOn() ? rows.length+" of "+before : "";
   rows=sortBy(rows, function(c){ return clientStats(c).outstanding; }, true);
 
   $("contacts-body").innerHTML = rows.length ? rows.map(function(c){
@@ -2871,7 +2895,7 @@ function renderContacts(){
       '<td class="num">'+st.deals+'</td><td class="num">'+money0(st.billed)+'</td>'+
       '<td class="num '+(st.outstanding>0.004?"strong":"")+'">'+(st.outstanding>0.004?money(st.outstanding):'<span class="faint">—</span>')+'</td>'+
       '<td class="tiny muted">'+(st.last?fmtDate(txRecognisedDate(st.last)):"—")+'</td></tr>';
-  }).join("") : emptyRow(8,"Nobody here yet.");
+  }).join("") : emptyRow(8, contactFilterOn() ? "Nobody matches the search." : "Nobody here yet.");
   $("contacts-body").querySelectorAll("[data-c]").forEach(function(r){
     r.addEventListener("click", function(){ openContact(r.dataset.c); });
   });
