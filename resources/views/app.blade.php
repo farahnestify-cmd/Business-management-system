@@ -497,12 +497,22 @@
           <div class="section-head"><div><h2>Your data</h2><p class="sub">Keep a copy somewhere safe — a USB stick or Google Drive. The backup holds every record, including Recently deleted; the spreadsheet is for reading and sharing.</p></div></div>
           <div class="panel panel-pad">
             <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center">
-              <button class="btn primary" type="button" id="data-backup">Download a full backup</button>
+              <button class="btn primary" type="button" id="data-backup">Back up now</button>
               <button class="btn" type="button" id="data-xlsx">Download as a spreadsheet</button>
               <button class="btn danger" type="button" id="data-restore">Restore from a backup…</button>
               <input type="file" id="data-file" accept=".json,application/json" hidden>
             </div>
-            <p class="tiny muted" style="margin-top:12px">Restoring replaces everything in the system with the file's contents. Accounts and passwords stay as they are, and a copy of the current data is kept on the server first.</p>
+            <p class="tiny muted" style="margin-top:12px">Back up now keeps a full copy on the server and downloads it to this computer. Restoring replaces everything in the system with the file's contents. Accounts and passwords stay as they are, and a copy of the current data is kept on the server first.</p>
+            <div class="grid g2" style="margin-top:18px; align-items:end">
+              <div class="field"><label for="ab-days">Automatic backup</label>
+                <select id="ab-days"><option value="0">Off</option><option value="7">Every week</option><option value="14">Every 2 weeks</option><option value="30">Every month</option></select></div>
+              <label style="display:flex; gap:8px; align-items:center; text-transform:none; letter-spacing:0; margin:0 0 10px"><input type="checkbox" id="ab-download" style="width:auto"> Download each automatic backup to this computer</label>
+            </div>
+            <p class="tiny muted" id="ab-status"></p>
+            <div class="table-wrap" style="margin-top:8px"><table>
+              <thead><tr><th>Copy kept on the server</th><th>Made</th><th class="num">Size</th><th></th></tr></thead>
+              <tbody id="ab-list"></tbody>
+            </table></div>
           </div>
         </div>
         <div class="section" id="trash-section" hidden>

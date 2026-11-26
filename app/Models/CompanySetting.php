@@ -16,6 +16,7 @@ class CompanySetting extends Model
         'overdue_days' => 14,
         'stale_days' => 21,
         'variance_flag' => 15,
+        'auto_backup_days' => 14,
         'terms_quotation' => 'All prices in USD. This quotation is valid for {validity} days from the date above. A down payment confirms the order and reserves the stock listed.',
         'terms_agreement' => 'This agreement confirms the scope and prices listed above. The balance falls due on delivery unless a date is stated. nestify remains the owner of the goods until payment is received in full.',
         'terms_invoice' => 'Payment due on receipt. Please quote the reference number above with your transfer.',
@@ -54,6 +55,7 @@ class CompanySetting extends Model
             'introText' => (string) $this->intro_text,
             'offerNotes' => (string) $this->offer_notes,
             'coverNote' => (string) $this->cover_note,
+            'autoBackupDays' => (int) $this->auto_backup_days,
             // Images are served by their own route; the version makes a new upload show at once.
             'logo' => $this->logo_data ? url('/api/brand/logo').'?v='.substr(md5($this->logo_data), 0, 10) : '',
             'hero' => $this->hero_data ? url('/api/brand/hero').'?v='.substr(md5($this->hero_data), 0, 10) : '',

@@ -427,6 +427,7 @@ function reload(){
     });
     state.user = d.user;
     applyRole();
+    autoDownloadBackup(d.autoBackup);
     state.settings = Object.assign({}, DEFAULTS, d.settings || {});
     prepareWhiteLogo();
     state.ready = true;
@@ -511,6 +512,7 @@ function setView(name){
   if(cfg.action){ pa.hidden=false; pa.textContent=cfg.action.label; pa.onclick=cfg.action.fn; } else { pa.hidden=true; }
   if(name==="inventory") syncInventoryAction();
   if(name==="settings") $("view-title").textContent = isManager() ? "Company settings" : "My account";
+  if(name==="settings") backupsLoaded=false; /* the list is fetched fresh each time the page is opened */
   window.scrollTo(0,0);
   render();
 }
@@ -3327,9 +3329,11 @@ $("s-save").addEventListener("click", function(){
 /* ---------- Your data: backup, restore, spreadsheet; Recently deleted ---------- */
 var KIND_LABEL={client:"Contact", product:"Product", base:"Base", cover:"Cover", supplier:"Supplier", employee:"Person",
   expense:"Expense", purchase_order:"Purchase order", service:"Service", offer_set:"Offer set", payment:"Payment", payroll_payment:"Salary payment", user:"Account"};
+var backupsLoaded=false;
 function renderData(){
   $("data-section").hidden = $("trash-section").hidden = !isOwner();
   if(!isOwner()) return;
+  if(!backupsLoaded){ backupsLoaded=true; loadBackups(); }
   $("trash-empty").disabled = !state.trash.length;
   $("trash-body").innerHTML = state.trash.length ? state.trash.map(function(r){
     return '<tr><td class="strong">'+esc(r.label)+'</td><td><span class="pill neutral">'+esc(KIND_LABEL[r.kind]||r.kind)+'</span></td>'+
@@ -3354,7 +3358,54 @@ $("trash-empty").addEventListener("click", function(){
   if(!window.confirm("Clear everything in Recently deleted? None of it can be brought back after this.")) return;
   api("DELETE", "deleted").then(function(){ return reload().then(function(){ toast("Recently deleted cleared"); }); }).catch(function(e){ toast(e.message, true); });
 });
-$("data-backup").addEventListener("click", function(){ window.location.href = BASE + "/api/backup"; });
+/* ---------- Backups ---------- */
+function downloadBackupFile(name){
+  var a=document.createElement("a"); a.href=BASE+"/api/backups/"+encodeURIComponent(name); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+$("data-backup").addEventListener("click", function(){
+  var btn=this; btn.disabled=true;
+  api("POST", "backups").then(function(res){ downloadBackupFile(res.name); toast("Backed up — the file is downloading"); loadBackups(); })
+    .catch(function(e){ toast(e.message||"Could not make the backup", true); }).then(function(){ btn.disabled=false; });
+});
+function abKey(){ return "nestify.backup."+(state.user ? state.user.id : "anon"); }
+function abDownloadOn(){ try{ return localStorage.getItem(abKey()+".auto")!=="0"; }catch(e){ return true; } }
+function loadBackups(){
+  if(!isOwner()) return;
+  api("GET", "backups").then(function(r){
+    $("ab-days").value=String(r.days);
+    $("ab-download").checked=abDownloadOn(); $("ab-download").disabled=!r.days;
+    var last=r.list.filter(function(b){ return b.kind==="auto"; })[0];
+    $("ab-status").textContent = !r.days ? "Automatic backups are off." :
+      (last ? "Last automatic backup: "+fmtDate(last.createdAt.slice(0,10))+". Next one when the system is opened on or after "+fmtDate(r.nextDue)+"." :
+              "The first automatic backup is made the next time the system is opened.");
+    var kindName={auto:"Automatic", manual:"Back up now", "before-restore":"Before a restore"};
+    $("ab-list").innerHTML = r.list.length ? r.list.slice(0,15).map(function(b){
+      return '<tr><td>'+esc(kindName[b.kind]||b.kind)+'<div class="tiny faint mono">'+esc(b.name)+'</div></td><td class="tiny muted">'+fmtDate(b.createdAt.slice(0,10))+' '+esc(b.createdAt.slice(11,16))+'</td>'+
+        '<td class="num tiny">'+(b.size>1048576 ? (b.size/1048576).toFixed(1)+" MB" : Math.max(1,Math.round(b.size/1024))+" KB")+'</td>'+
+        '<td style="text-align:right"><button class="btn sm" type="button" data-bk="'+esc(b.name)+'">Download</button></td></tr>';
+    }).join("") : emptyRow(4,"No copies on the server yet.");
+    $("ab-list").querySelectorAll("[data-bk]").forEach(function(b){ b.addEventListener("click", function(){ downloadBackupFile(b.dataset.bk); }); });
+  }).catch(function(){});
+}
+$("ab-days").addEventListener("change", function(){
+  api("PUT", "backups/settings", {days:Number($("ab-days").value)}).then(function(){
+    toast(Number($("ab-days").value) ? "Automatic backup saved" : "Automatic backups are off"); loadBackups();
+  }).catch(function(e){ toast(e.message||"Could not save", true); });
+});
+$("ab-download").addEventListener("change", function(){
+  try{ localStorage.setItem(abKey()+".auto", $("ab-download").checked ? "1" : "0"); }catch(e){}
+  toast($("ab-download").checked ? "New automatic backups will download to this computer" : "Automatic backups stay on the server only");
+});
+/* A new automatic copy downloads by itself, once, on each computer that wants it. */
+function autoDownloadBackup(info){
+  if(!isOwner() || !info || !info.name || !abDownloadOn()) return;
+  var seen=null; try{ seen=localStorage.getItem(abKey()+".last"); }catch(e){}
+  if(seen===info.name) return;
+  try{ localStorage.setItem(abKey()+".last", info.name); }catch(e){}
+  downloadBackupFile(info.name);
+  toast("Automatic backup downloaded — "+info.name);
+}
 $("data-restore").addEventListener("click", function(){ $("data-file").value=""; $("data-file").click(); });
 $("data-file").addEventListener("change", function(){
   var f=this.files[0]; if(!f) return;

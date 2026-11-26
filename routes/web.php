@@ -63,6 +63,10 @@ Route::middleware('auth')->group(function () {
             Route::delete('expenses/{expense}', [ExpenseController::class, 'destroy']);
             Route::delete('payments/{payment}', [SalesController::class, 'destroyPayment']);
             Route::get('backup', [DataController::class, 'backup']);
+            Route::get('backups', [DataController::class, 'backups']);
+            Route::post('backups', [DataController::class, 'backupNow']);
+            Route::put('backups/settings', [DataController::class, 'backupSettings']);
+            Route::get('backups/{name}', [DataController::class, 'downloadBackup'])->where('name', '[A-Za-z0-9._-]+');
             Route::post('restore', [DataController::class, 'restore']);
             Route::post('deleted/{deletedRecord}/restore', [DataController::class, 'restoreDeleted']);
             Route::delete('deleted/{deletedRecord}', [DataController::class, 'forget']);

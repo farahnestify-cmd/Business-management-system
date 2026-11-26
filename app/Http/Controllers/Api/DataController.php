@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\CompanySetting;
 use App\Models\DeletedRecord;
 use App\Models\User;
+use App\Support\Backups;
 use App\Support\RecycleBin;
 use App\Support\Undo;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -31,12 +34,47 @@ class DataController extends Controller
         'transactions' => 'created_by', 'deliveries' => 'user_id', 'deleted_records' => 'deleted_by',
     ];
 
+    /** The copies kept on the server, and how often an automatic one is made. */
+    public function backups()
+    {
+        $days = (int) CompanySetting::current()->auto_backup_days;
+        $last = Backups::latestAuto();
+
+        return response()->json([
+            'days' => $days,
+            'list' => Backups::all(),
+            'nextDue' => $days > 0 ? ($last ? Carbon::parse($last['createdAt'])->addDays($days)->toDateString() : now()->toDateString()) : null,
+        ]);
+    }
+
+    /** "Back up now": a copy kept on the server, which the browser then downloads. */
+    public function backupNow()
+    {
+        return response()->json(['name' => Backups::save('manual')], 201);
+    }
+
+    public function downloadBackup(string $name)
+    {
+        $path = Backups::path($name);
+        abort_if(! $path, 404);
+
+        return response()->download($path, $name, ['Content-Type' => 'application/json']);
+    }
+
+    public function backupSettings(Request $request)
+    {
+        $data = $request->validate(['days' => 'required|integer|in:0,7,14,30']);
+        CompanySetting::current()->update(['auto_backup_days' => $data['days']]);
+
+        return $this->backups();
+    }
+
     public function backup()
     {
         $name = 'nestify-backup-'.now()->format('Y-m-d-His').'.json';
 
         return response()->streamDownload(function () {
-            echo json_encode($this->snapshot(), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+            echo json_encode(self::snapshot(), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
         }, $name, ['Content-Type' => 'application/json']);
     }
 
@@ -50,7 +88,7 @@ class DataController extends Controller
 
         // A copy of what is here now, in case the restore was a mistake.
         $safety = 'backups/before-restore-'.now()->format('Y-m-d-His').'.json';
-        Storage::disk('local')->put($safety, json_encode($this->snapshot(), JSON_UNESCAPED_UNICODE));
+        Storage::disk('local')->put($safety, json_encode(self::snapshot(), JSON_UNESCAPED_UNICODE));
 
         $userIds = User::pluck('id')->all();
         $counts = [];
@@ -123,7 +161,7 @@ class DataController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    private function snapshot(): array
+    public static function snapshot(): array
     {
         $tables = [];
         foreach (self::TABLES as $table) {

@@ -22,6 +22,7 @@ use App\Models\Service;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\Backups;
 use Illuminate\Http\Request;
 
 /**
@@ -47,8 +48,20 @@ class BootstrapController extends Controller
                 return $row;
             })->values();
 
+        // The owner's visit is what makes an automatic backup when one is due.
+        $autoBackup = null;
+        if ($owner) {
+            try {
+                Backups::runIfDue();
+            } catch (\Throwable $e) {
+                report($e); // a full disk must not keep anyone out of the system
+            }
+            $autoBackup = Backups::latestAuto();
+        }
+
         return response()->json([
             'user' => $user->toApi(),
+            'autoBackup' => $autoBackup,
             'settings' => CompanySetting::current()->toApi(),
             'clients' => $api(Client::orderBy('name')->get()),
             'products' => $stock(Product::orderBy('name')->get()),
