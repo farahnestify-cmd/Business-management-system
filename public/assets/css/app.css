@@ -417,6 +417,8 @@ svg.chart g.col:hover rect.bar{opacity:.82}
 #doc-sheet{max-width:760px}
 #doc-sheet .sheet-body{padding:0; background:#EFF1EE}
 
+/* No page margin: the browser then has nowhere to put its own header and footer. */
+@page{size:A4; margin:0}
 @media print{
   body{background:#fff}
   body *{visibility:hidden}

@@ -2159,10 +2159,35 @@ function addDays(iso, n){
 }
 $("doc-close").addEventListener("click", function(){ $("doc-overlay").hidden=true; });
 /* The browser names a printed PDF after the page title, so the title takes the file name while printing. */
+/* Print sends the very PDF that Download PDF saves, so the paper matches the file exactly and
+   the browser adds nothing of its own (no date, title, address or page numbers). */
 $("doc-print").addEventListener("click", function(){
-  var keep=document.title; document.title=docBaseName();
-  window.print();
-  setTimeout(function(){ document.title=keep; }, 1000);
+  var btn=this; if(btn.disabled) return;
+  var label=btn.textContent; btn.disabled=true; btn.textContent="Preparing…";
+  var done=function(){ btn.disabled=false; btn.textContent=label; };
+  ensurePdfLibs().then(docToPdf).then(function(pdf){
+    var url=URL.createObjectURL(pdf.output("blob"));
+    var old=$("print-frame"); if(old) old.remove();
+    var f=document.createElement("iframe");
+    f.id="print-frame"; f.title=docBaseName();
+    f.style.cssText="position:fixed; right:0; bottom:0; width:1px; height:1px; border:0; opacity:0";
+    var started=false;
+    f.onload=function(){
+      setTimeout(function(){
+        started=true;
+        try{ f.contentWindow.focus(); f.contentWindow.print(); }
+        catch(e){ window.open(url, "_blank"); } /* a browser that will not print from a frame opens the PDF instead */
+        done();
+      }, 300);
+    };
+    /* A browser that cannot show a PDF inside the page never loads the frame: open the PDF to print from there. */
+    setTimeout(function(){ if(!started){ started=true; done(); window.open(url, "_blank"); } }, 5000);
+    f.src=url; document.body.appendChild(f);
+  }).catch(function(){
+    /* Without the PDF tool, the page itself is printed (with no browser margins, so no headers either). */
+    var keep=document.title; document.title=docBaseName();
+    window.print(); setTimeout(function(){ document.title=keep; }, 1000); done();
+  });
 });
 
 /* ---------- Download PDF: the document drawn at A4 width and saved as a file ----------
