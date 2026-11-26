@@ -52,4 +52,22 @@ class AutoBackupTest extends TestCase
         $this->getJson('/api/backups')->assertForbidden();
         $this->postJson('/api/backups')->assertForbidden();
     }
+
+    public function test_a_backup_sent_in_pieces_is_restored(): void
+    {
+        $this->actingAs(User::create(['name' => 'O', 'email' => 'o@example.com', 'password' => 'secret123', 'role' => 'owner']));
+        Client::create(['name' => 'From the file', 'type' => 'End User', 'region' => 'West Bank']);
+        $name = $this->postJson('/api/backups')->json('name');
+        $file = Storage::disk('local')->get('backups/'.$name);
+        Client::query()->delete();
+
+        // Uneven pieces, cut anywhere, as the browser sends them.
+        foreach (str_split($file, 777) as $i => $piece) {
+            $this->postJson('/api/restore/piece', ['upload' => 'abcdefghijklmnop1234', 'index' => $i, 'data' => base64_encode($piece)])->assertOk();
+        }
+        $this->postJson('/api/restore/finish', ['upload' => 'abcdefghijklmnop1234'])->assertOk()->assertJsonPath('contacts', 1);
+        $this->assertSame('From the file', Client::first()->name);
+        $this->postJson('/api/restore/finish', ['upload' => 'abcdefghijklmnop1234'])->assertNotFound();
+        $this->postJson('/api/restore/piece', ['upload' => '../../x', 'index' => 0, 'data' => 'eA=='])->assertStatus(422);
+    }
 }

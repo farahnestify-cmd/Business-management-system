@@ -16,6 +16,7 @@ use App\Models\StockItem;
 use App\Models\Supplier;
 use App\Models\Transaction;
 use App\Models\TransactionItem;
+use App\Support\BigValues;
 use App\Support\RecycleBin;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
@@ -141,7 +142,7 @@ class RecordController extends Controller
             $this->uniqueType($model);
         }
         $this->checkImage($model);
-        $model->save();
+        BigValues::save($model, ['image_data', 'type_images']);
 
         return response()->json(['id' => (string) $model->id], 201);
     }
@@ -158,7 +159,7 @@ class RecordController extends Controller
             $this->uniqueType($model);
         }
         $this->checkImage($model);
-        $model->save();
+        BigValues::save($model, ['image_data', 'type_images']);
 
         return response()->json(['id' => (string) $model->id]);
     }
@@ -186,10 +187,13 @@ class RecordController extends Controller
     /** Only PNG, JPG or WebP data URLs are kept as pictures: one per item, up to four per cover type on a base. */
     private function checkImage(Model $model): void
     {
-        $ok = fn ($d) => is_string($d) && strlen($d) <= 3000000 && preg_match('#^data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$#', $d);
+        $ok = fn ($d) => is_string($d) && preg_match('#^data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$#', $d);
         $data = $model->getAttribute('image_data');
         if ($data && ! $ok($data)) {
             throw ValidationException::withMessages(['imageData' => 'Choose a PNG, JPG or WebP picture.']);
+        }
+        if ($data && strlen($data) > BigValues::SAFE) {
+            throw ValidationException::withMessages(['imageData' => 'That picture is too large to keep. Choose a smaller one (under about 600 KB).']);
         }
         if ($model instanceof Base && $model->type_images) {
             $clean = [];
@@ -206,6 +210,9 @@ class RecordController extends Controller
                 if ($list) {
                     $clean[(string) $code] = $list;
                 }
+            }
+            if ($clean && strlen(json_encode($clean)) > BigValues::SAFE) {
+                throw ValidationException::withMessages(['typeImages' => 'These pictures are too large together. Use smaller pictures, or fewer of them.']);
             }
             $model->type_images = $clean ?: null;
         }

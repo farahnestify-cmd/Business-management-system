@@ -84,12 +84,13 @@ class RecycleBin
             $label .= $tx ? ' · '.$tx->ref_no.' · '.$tx->client_name : '';
         }
 
-        $rec = DeletedRecord::create([
+        $rec = new DeletedRecord([
             'kind' => $kind,
             'label' => $label,
             'payload' => $payload,
             'deleted_by' => auth()->id(),
         ]);
+        BigValues::save($rec, ['payload']); // a deleted item can carry its pictures
         $model->delete();
         self::$lastUndo = Undo::offer('trash', ['id' => $rec->id]);
     }

@@ -2569,7 +2569,10 @@ function shrinkPicture(file, max){
         var c=document.createElement("canvas");
         c.width=Math.max(1, Math.round(img.width*k)); c.height=Math.max(1, Math.round(img.height*k));
         c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        ok(c.toDataURL("image/png"));
+        /* WebP keeps transparency at a fraction of a PNG's size; browsers without it give PNG. */
+        var out=c.toDataURL("image/webp", 0.86);
+        if(out.indexOf("data:image/webp")!==0) out=c.toDataURL("image/png");
+        ok(out);
       };
       img.src=r.result;
     };
@@ -3281,7 +3284,8 @@ function shrinkImage(file, maxW, keepPng){
         var w=Math.min(maxW, img.naturalWidth), h=Math.round(img.naturalHeight*w/img.naturalWidth);
         var c=document.createElement("canvas"); c.width=w; c.height=h;
         c.getContext("2d").drawImage(img, 0, 0, w, h);
-        ok(keepPng ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", 0.85));
+        var webp = keepPng ? c.toDataURL("image/webp", 0.9) : "";
+        ok(keepPng ? (webp.indexOf("data:image/webp")===0 ? webp : c.toDataURL("image/png")) : c.toDataURL("image/jpeg", 0.85));
       };
       img.src=r.result;
     };
@@ -3442,12 +3446,22 @@ $("data-restore").addEventListener("click", function(){ $("data-file").value="";
 $("data-file").addEventListener("change", function(){
   var f=this.files[0]; if(!f) return;
   if(!window.confirm("Restore from “"+f.name+"”?\n\nEverything in the system now will be replaced by what is in this file. Accounts and passwords stay as they are.")) return;
-  var fd=new FormData(); fd.append("file", f);
   toast("Restoring…");
-  fetch(BASE+"/api/restore", {method:"POST", body:fd, credentials:"same-origin",
-    headers:{"Accept":"application/json", "X-CSRF-TOKEN":CSRF, "X-Requested-With":"XMLHttpRequest"}})
-    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if(!r.ok) throw new Error(j.message||"Could not restore"); return j; }); })
-    .then(function(j){ return reload().then(function(){ toast("Restored: "+j.deals+" deals and "+j.contacts+" contacts"+(j.from ? " from "+fmtDate(j.from.slice(0,10)) : "")); }); })
+  /* The file goes up in pieces of about half a megabyte, so no host limit on uploads gets in the way. */
+  var upload=(Date.now().toString(36)+Math.random().toString(36).slice(2)+"xxxxxxxxxxxxxxxx").replace(/[^a-z0-9]/gi,"").slice(0,24);
+  f.arrayBuffer().then(function(buf){
+    var bytes=new Uint8Array(buf), size=375000, pieces=Math.max(1, Math.ceil(bytes.length/size)), i=0;
+    function b64(u8){ var s=""; for(var k=0;k<u8.length;k+=8192) s+=String.fromCharCode.apply(null, u8.subarray(k, k+8192)); return btoa(s); }
+    function next(){
+      if(i>=pieces) return api("POST", "restore/finish", {upload:upload});
+      var n=i; i++;
+      if(pieces>2) toast("Restoring… "+Math.round(n/pieces*100)+"%");
+      return api("POST", "restore/piece", {upload:upload, index:n, data:b64(bytes.subarray(n*size, (n+1)*size))}).then(next);
+    }
+    return next();
+  })
+    .then(function(j){ return reload().then(function(){ toast("Restored: "+j.deals+" deals and "+j.contacts+" contacts"+(j.from ? " from "+fmtDate(j.from.slice(0,10)) : "")+
+      (j.skipped ? ". "+j.skipped+" picture"+(j.skipped>1?"s were":" was")+" too large to bring back — add "+(j.skipped>1?"them":"it")+" again from the item." : "")); }); })
     .catch(function(e){ toast(e.message, true); });
 });
 

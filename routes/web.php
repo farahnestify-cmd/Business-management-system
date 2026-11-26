@@ -68,6 +68,8 @@ Route::middleware('auth')->group(function () {
             Route::put('backups/settings', [DataController::class, 'backupSettings']);
             Route::get('backups/{name}', [DataController::class, 'downloadBackup'])->where('name', '[A-Za-z0-9._-]+');
             Route::post('restore', [DataController::class, 'restore']);
+            Route::post('restore/piece', [DataController::class, 'restorePiece']);
+            Route::post('restore/finish', [DataController::class, 'restoreAssembled']);
             Route::post('deleted/{deletedRecord}/restore', [DataController::class, 'restoreDeleted']);
             Route::delete('deleted/{deletedRecord}', [DataController::class, 'forget']);
             Route::delete('deleted', [DataController::class, 'emptyBin']);

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CompanySetting;
+use App\Support\BigValues;
 use Illuminate\Http\Request;
 
 class SettingsController extends Controller
@@ -74,9 +75,12 @@ class SettingsController extends Controller
         if (! preg_match('#^data:image/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$#', $data)) {
             return response()->json(['message' => 'Choose a PNG, JPG or WebP image.'], 422);
         }
+        if (strlen($data) > BigValues::SAFE) {
+            return response()->json(['message' => 'That picture is too large to keep. Choose a smaller one.'], 422);
+        }
         $s = CompanySetting::current();
         $s->{$which.'_data'} = $data;
-        $s->save();
+        BigValues::save($s, [$which.'_data']);
 
         return response()->json($s->toApi());
     }
