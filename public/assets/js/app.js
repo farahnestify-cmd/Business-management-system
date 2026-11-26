@@ -149,9 +149,9 @@ function lineStandard(line, ctx){
   if(line.kind==="combo"){
     var b=baseById(line.baseId), c=coverById(line.coverId), ct=coverTypeOf(line);
     if(!b) return 0;
-    /* Sold by cover type: the base plus the type's add-on for this client's price column.
-       An older line chosen by colour keeps the cover's own add-on. */
-    var add = line.coverType && ct ? num(ctx.clientType==="Dealer" ? ct.addOnDealer : ct.addOnEndUser) : (c ? num(c.priceAddOn) : 0);
+    /* The base plus its cover type's add-on for this client's price column (a cover belongs to the
+       type named by its line). Only a cover whose line is no type falls back to its own add-on. */
+    var add = ct ? num(ctx.clientType==="Dealer" ? ct.addOnDealer : ct.addOnEndUser) : (c ? num(c.priceAddOn) : 0);
     return standardUnitPrice(b, ctx.clientType, ctx.region, ctx.service) + add;
   }
   return standardUnitPrice(productById(line.productId), ctx.clientType, ctx.region, ctx.service);
@@ -2349,7 +2349,8 @@ function editStock(kind, item){
     groups.push({fields:[
       {id:"f-color", label:"Colour", value:d.color},
       {id:"f-finish", label:"Finish", type:"select", options:["Glossy","Matte"], value:d.finish},
-      {id:"f-addon", label:"Price added over the base", type:"number", step:"0.01", value:num(d.priceAddOn)}]});
+      {id:"f-addon", label:"Own add-on (only if its line is not a cover type)", type:"number", step:"0.01", value:num(d.priceAddOn)}]});
+    groups.push({note:"The price a cover adds comes from its cover type (Inventory → Cover types), set once for the whole type and taken when Q or S is chosen in the offer. Choosing the colour later does not change the price."});
   } else {
     groups.push({fields:[
       {id:"f-name", label:kind==="base"?"Base name":"Product name", value:d.name,
