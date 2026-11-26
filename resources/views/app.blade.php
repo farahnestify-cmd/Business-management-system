@@ -410,6 +410,12 @@
             <div><h2 id="payroll-title">Payroll</h2><p class="sub">Salary data is restricted to the owner by database rules — staff accounts see this page empty, whatever they do.</p></div>
             <button class="btn sm" type="button" data-add="employee">Add person</button>
           </div>
+          <div class="tbl-tools">
+            <input type="search" data-tf="emp" data-k="q" placeholder="Search name, role, notes…" autocomplete="off">
+            <select data-tf="emp" data-k="role" aria-label="Role"></select>
+            <select data-tf="emp" data-k="status" aria-label="This month"><option value="">Everyone</option><option value="due">Not paid this month</option><option value="paid">Paid this month</option><option value="inactive">Inactive</option></select>
+            <span class="tiny faint" data-tcount="emp"></span>
+          </div>
           <div class="panel"><div class="table-wrap"><table>
             <thead><tr><th>Person</th><th>Role</th><th class="num">Monthly</th><th>This month</th><th></th></tr></thead>
             <tbody id="payroll-body"></tbody>
@@ -417,6 +423,12 @@
         </div>
         <div class="section">
           <div class="section-head"><div><h2>Payment history</h2></div></div>
+          <div class="tbl-tools">
+            <input type="search" data-tf="hist" data-k="q" placeholder="Search person…" autocomplete="off">
+            <select data-tf="hist" data-k="month" aria-label="Month"></select>
+            <select data-tf="hist" data-k="method" aria-label="Method"><option value="">Any method</option><option>Cash</option><option>Bank Transfer</option><option>Cheque</option></select>
+            <span class="tiny faint" data-tcount="hist"></span>
+          </div>
           <div class="panel"><div class="table-wrap"><table>
             <thead><tr><th>Month</th><th>Person</th><th>Paid on</th><th class="num">Amount</th></tr></thead>
             <tbody id="payhist-body"></tbody>

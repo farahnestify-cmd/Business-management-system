@@ -3167,6 +3167,18 @@ function renderLedger(){
 /* ============================================================
    22. TEAM
    ============================================================ */
+/* Search and filters on the Team page. */
+var teamF={emp:{q:"",role:"",status:""}, hist:{q:"",month:"",method:""}};
+document.querySelectorAll("[data-tf]").forEach(function(inp){
+  inp.addEventListener("input", function(){ teamF[inp.dataset.tf][inp.dataset.k]=inp.value; renderTeam(); });
+});
+function teamOn(key){ return Object.keys(teamF[key]).some(function(k){ return !!teamF[key][k]; }); }
+function teamSelect(key, k, label, values, labeller){
+  var el=document.querySelector('[data-tf="'+key+'"][data-k="'+k+'"]'); if(!el) return;
+  var vals=values.filter(function(v, i){ return v && values.indexOf(v)===i; });
+  el.innerHTML='<option value="">'+esc(label)+'</option>'+vals.map(function(v){ return '<option value="'+esc(v)+'">'+esc(labeller ? labeller(v) : v)+'</option>'; }).join("");
+  el.value=teamF[key][k];
+}
 function renderTeam(){
   var mk=thisMonth().replace("-","").slice(2);
   var active=state.employees.filter(function(e){ return e.active!==false; });
@@ -3177,7 +3189,19 @@ function renderTeam(){
     figure("Monthly cost", money0(sum(active,function(e){ return e.monthlySalary; }))) +
     figure("Paid this month", money0(sum(paidThis,function(p){ return p.amount; })));
 
-  $("payroll-body").innerHTML = state.employees.length ? state.employees.map(function(e){
+  var ef=teamF.emp;
+  teamSelect("emp", "role", "All roles", state.employees.map(function(e){ return e.role; }).sort());
+  var people=state.employees.filter(function(e){
+    var paid=paidThis.some(function(p){ return p.employeeId===e.id; }), inactive=e.active===false;
+    if(ef.role && e.role!==ef.role) return false;
+    if(ef.status==="due" && (paid || inactive)) return false;
+    if(ef.status==="paid" && !paid) return false;
+    if(ef.status==="inactive" && !inactive) return false;
+    return matchesQ(ef.q, [e.name, e.role, e.notes]);
+  });
+  var tc=document.querySelector('[data-tcount="emp"]');
+  if(tc) tc.textContent = teamOn("emp") ? people.length+" of "+state.employees.length+" · "+money(sum(people,function(e){ return e.monthlySalary; }))+" a month" : "";
+  $("payroll-body").innerHTML = people.length ? people.map(function(e){
     var rec=paidThis.filter(function(p){ return p.employeeId===e.id; })[0];
     return '<tr><td class="strong">'+esc(e.name)+'</td><td class="tiny muted">'+esc(e.role||"")+'</td>'+
       '<td class="num">'+money(e.monthlySalary)+'</td>'+
@@ -3186,7 +3210,7 @@ function renderTeam(){
         (rec||e.active===false ? '<button class="btn quiet sm" data-emp="'+e.id+'">Edit</button>'
           : '<button class="btn sm primary" data-pay="'+e.id+'">Mark paid</button> <button class="btn quiet sm" data-emp="'+e.id+'">Edit</button>')+
       '</td></tr>';
-  }).join("") : emptyRow(5,"Nobody added yet. If you are staff rather than the owner, this page stays empty by design.");
+  }).join("") : emptyRow(5, state.employees.length ? "Nobody matches the search." : "Nobody added yet. If you are staff rather than the owner, this page stays empty by design.");
   $("payroll-body").querySelectorAll("[data-pay]").forEach(function(b){
     b.addEventListener("click", function(){ payEmployee(b.dataset.pay); });
   });
@@ -3194,11 +3218,19 @@ function renderTeam(){
     b.addEventListener("click", function(){ editEmployee(byId(state.employees, b.dataset.emp)); });
   });
 
-  var hist=sortBy(state.payroll, function(p){ return p.paidDate||p.month||""; }, true).slice(0,12);
+  var hf=teamF.hist;
+  teamSelect("hist", "month", "Any month", sortBy(state.payroll, function(p){ return payrollMonthKey(p); }, true).map(payrollMonthKey), monthLabel);
+  var matched=sortBy(state.payroll.filter(function(p){
+    return (!hf.month || payrollMonthKey(p)===hf.month) && (!hf.method || p.method===hf.method) && matchesQ(hf.q, [p.employeeName]);
+  }), function(p){ return p.paidDate||p.month||""; }, true);
+  var hc=document.querySelector('[data-tcount="hist"]');
+  if(hc) hc.textContent = teamOn("hist") ? matched.length+" payments · "+money(sum(matched,function(p){ return p.amount; })) : "";
+  /* Unfiltered, the latest twelve; a search reaches the whole history. */
+  var hist = teamOn("hist") ? matched : matched.slice(0,12);
   $("payhist-body").innerHTML = hist.length ? hist.map(function(p){
     return '<tr><td class="mono">'+esc(p.month||"")+'</td><td>'+esc(p.employeeName||"")+'</td>'+
       '<td class="tiny muted">'+fmtDate(p.paidDate)+'</td><td class="num">'+money(p.amount)+'</td></tr>';
-  }).join("") : emptyRow(4,"No salary payments recorded.");
+  }).join("") : emptyRow(4, state.payroll.length ? "No payment matches the search." : "No salary payments recorded.");
 }
 function payEmployee(id){
   var e=byId(state.employees,id); if(!e) return;
